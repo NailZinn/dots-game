@@ -6,34 +6,41 @@
     <title>Dots Game</title>
     <script src="https://cdn.tailwindcss.com"></script>
   </head>
-  <body class="w-screen h-screen bg-amber-100 p-4">
-    <div id="field" class="w-[calc(1.25rem*39)] h-[calc(1.25rem*32)] grid grid-cols-[repeat(39,minmax(0,1fr))] grid-rows-[repeat(32,minmax(0,1fr))] m-auto"></div>
+  <body id="body" class="w-screen h-screen bg-amber-100 p-4">
+    <canvas id="field" style="image-rendering: pixelated;" width="780" height="640" class="w-[calc(1.25rem*39)] h-[calc(1.25rem*32)] m-auto"></canvas>
   </body>
   <script>
-    const field = document.getElementById("field");
     const rows = 32;
     const columns = 39;
 
-    let dotId = 2;
+    const body = document.getElementById("body");
     
-    for (let r = 1; r <= rows; r++) {
-      for (let c = 1; c <= columns; c++) {
-        const cell = document.createElement("div");
-        cell.id = `cell-${r}-${c}`;
-        cell.classList.add("w-5", "h-5", "border", "border-l-gray-900", "border-t-gray-900");
+    /**
+     * @type {HTMLCanvasElement}
+     */
+    const field = document.getElementById("field");
+    const canvas = field.getContext("2d");
 
-        if (c === columns) {
-          cell.classList.add("border-r-gray-900");
-        }
+    canvas.lineWidth = 1;
+    
+    canvas.beginPath();
+    
+    for (let r = 0; r <= rows; r++) {
+      canvas.moveTo(0, r * 20);
+      canvas.lineTo(field.offsetWidth, r * 20);
+    }
+    
+    for (let c = 0; c <= columns; c++) {
+      canvas.moveTo(c * 20, 0);
+      canvas.lineTo(c * 20, field.offsetTop + field.offsetHeight);
+    }
+    
+    canvas.stroke();
 
-        if (r === rows) {
-          cell.classList.add("border-b-gray-900");
-        }
-
-        field.append(cell);
-
-        if (c === 1 || r === 1) continue;
-
+    let dotId = 1;
+    
+    for (let r = 2; r <= rows; r++) {
+      for (let c = 2; c <= columns; c++) {
         const dot = document.createElement("div");
         dot.id = `dot-${dotId++}`;
         dot.classList.add(
@@ -45,7 +52,7 @@
 
         dot.onclick = (e) => dot.classList.add("rounded-full", "bg-blue-700");
 
-        field.append(dot);
+        body.append(dot);
       }
     }
   </script>
