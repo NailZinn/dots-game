@@ -37,6 +37,17 @@
     
     canvas.stroke();
 
+    const directions = [
+      // horizontal
+      [-1, 1],
+      // diagonal (left to right)
+      [-1 - (columns - 1), 1 + (columns - 1)],
+      // vertical
+      [-(columns - 1), (columns - 1)],
+      // diagonal (right to left)
+      [1 - (columns - 1), -1 + (columns - 1)]
+    ];
+
     /**
      * @type {boolean[]}
      */
@@ -75,129 +86,31 @@
 
           dot.classList.add("rounded-full", "bg-blue-700");
 
-          let currentLeader = -1;
+          let dotIsInUnion = false;
 
-          // W
-          if (occupiedDots[dotId - 1]) {
-            const wLeader = leaders[dotId - 1];
-            if (currentLeader === -1) {
-              unions[wLeader].push(dotId);
-              leaders[dotId] = wLeader;
-              currentLeader = wLeader;
-            } else if (currentLeader !== wLeader) {
-              unions[currentLeader].push(...unions[wLeader]);
-              unions[wLeader].forEach(x => leaders[x] = currentLeader);
-              unions[wLeader] = undefined;
-              leaders[dotId] = currentLeader;
-            }
-          }
-          
-          // NW
-          if (occupiedDots[dotId - 1 - (columns - 1)]) {
-            const nwLeader = leaders[dotId - 1 - (columns - 1)];
-            if (currentLeader === -1) {
-              unions[nwLeader].push(dotId);
-              leaders[dotId] = nwLeader;
-              currentLeader = nwLeader;
-            } else if (currentLeader !== nwLeader) {
-              unions[currentLeader].push(...unions[nwLeader]);
-              unions[nwLeader].forEach(x => leaders[x] = currentLeader);
-              unions[nwLeader] = undefined;
-              leaders[dotId] = currentLeader;
-            }
-          }
-          
-          // N
-          if (occupiedDots[dotId - (columns - 1)]) {
-            const nLeader = leaders[dotId - (columns - 1)];
-            if (currentLeader === -1) {
-              unions[nLeader].push(dotId);
-              leaders[dotId] = nLeader;
-              currentLeader = nLeader;
-            } else if (currentLeader !== nLeader) {
-              unions[currentLeader].push(...unions[nLeader]);
-              unions[nLeader].forEach(x => leaders[x] = currentLeader);
-              unions[nLeader] = undefined;
-              leaders[dotId] = currentLeader;
-            }
-          }
-          
-          // NE
-          if (occupiedDots[dotId + 1 - (columns - 1)]) {
-            const neLeader = leaders[dotId + 1 - (columns - 1)];
-            if (currentLeader === -1) {
-              unions[neLeader].push(dotId);
-              leaders[dotId] = neLeader;
-              currentLeader = neLeader;
-            } else if (currentLeader !== neLeader) {
-              unions[currentLeader].push(...unions[neLeader]);
-              unions[neLeader].forEach(x => leaders[x] = currentLeader);
-              unions[neLeader] = undefined;
-              leaders[dotId] = currentLeader;
-            }
-          }
-          
-          // E
-          if (occupiedDots[dotId + 1]) {
-            const eLeader = leaders[dotId + 1];
-            if (currentLeader === -1) {
-              unions[eLeader].push(dotId);
-              leaders[dotId] = eLeader;
-              currentLeader = eLeader;
-            } else if (currentLeader !== eLeader) {
-              unions[currentLeader].push(...unions[eLeader]);
-              unions[eLeader].forEach(x => leaders[x] = currentLeader);
-              unions[eLeader] = undefined;
-              leaders[dotId] = currentLeader;
-            }
-          }
-          
-          // SE
-          if (occupiedDots[dotId + 1 + (columns - 1)]) {
-            const seLeader = leaders[dotId + 1 + (columns - 1)];
-            if (currentLeader === -1) {
-              unions[seLeader].push(dotId);
-              leaders[dotId] = seLeader;
-              currentLeader = seLeader;
-            } else if (currentLeader !== seLeader) {
-              unions[currentLeader].push(...unions[seLeader]);
-              unions[seLeader].forEach(x => leaders[x] = currentLeader);
-              unions[seLeader] = undefined;
-              leaders[dotId] = currentLeader;
-            }
-          }
-          
-          // S
-          if (occupiedDots[dotId + (columns - 1)]) {
-            const sLeader = leaders[dotId + (columns - 1)];
-            if (currentLeader === -1) {
-              unions[sLeader].push(dotId);
-              leaders[dotId] = sLeader;
-              currentLeader = sLeader;
-            } else if (currentLeader !== sLeader) {
-              unions[currentLeader].push(...unions[sLeader]);
-              unions[sLeader].forEach(x => leaders[x] = currentLeader);
-              unions[sLeader] = undefined;
-              leaders[dotId] = currentLeader;
+          for (let direction of directions) {
+            const firstOccupiedDot = occupiedDots[dotId + direction[0]]
+              ? dotId + direction[0]
+              : occupiedDots[dotId + direction[1]]
+                ? dotId + direction[1]
+                : undefined;
+
+            if (firstOccupiedDot === undefined) continue;
+            
+            const firstLeader = leaders[firstOccupiedDot];
+            unions[firstLeader].push(dotId);
+            leaders[dotId] = firstLeader;
+            dotIsInUnion = true;
+
+            if (occupiedDots[dotId + direction[0]] && occupiedDots[dotId + direction[1]]) {
+              const secondLeader = leaders[dotId + direction[1]];
+              unions[firstLeader].push(...unions[secondLeader]);
+              unions[secondLeader].forEach(x => leaders[x] = firstLeader);
+              unions[secondLeader] = undefined;
             }
           }
 
-          // SW
-          if (occupiedDots[dotId - 1 + (columns - 1)]) {
-            const swLeader = leaders[dotId - 1 + (columns - 1)];
-            if (currentLeader === -1) {
-              unions[swLeader].push(dotId);
-              leaders[dotId] = swLeader;
-              currentLeader = swLeader;
-            } else if (currentLeader !== swLeader) {
-              unions[currentLeader].push(...unions[swLeader]);
-              unions[swLeader].forEach(x => leaders[x] = currentLeader);
-              unions[swLeader] = undefined;
-              leaders[dotId] = currentLeader;
-            }
-          }
-
-          if (currentLeader === -1) {
+          if (!dotIsInUnion) {
             unions[dotId] = [dotId];
             leaders[dotId] = dotId;
           }
