@@ -25,24 +25,38 @@
     
     canvas.beginPath();
     
-    for (let r = 0; r <= rows; r++) {
+    for (let r = 1; r < rows; r++) {
       canvas.moveTo(0, r * 20);
       canvas.lineTo(field.offsetWidth, r * 20);
     }
     
-    for (let c = 0; c <= columns; c++) {
+    for (let c = 1; c < columns; c++) {
       canvas.moveTo(c * 20, 0);
       canvas.lineTo(c * 20, field.offsetTop + field.offsetHeight);
     }
     
     canvas.stroke();
 
-    let dotId = 1;
+    /**
+     * @type {boolean[]}
+     */
+    const occupiedDots = [];
+
+    /**
+     * @type {number[][]}
+     */
+    const unions = [];
+
+    /**
+     * @type {number[]}
+     */
+    const leaders = [];
     
     for (let r = 2; r <= rows; r++) {
       for (let c = 2; c <= columns; c++) {
         const dot = document.createElement("div");
-        dot.id = `dot-${dotId++}`;
+        const dotId = (r - 2) * (columns - 1) + c - 2;
+        dot.id = dotId.toString();
         dot.classList.add(
           `left-[${field.offsetLeft + 20 * (c - 1) - 4}px]`,
           `top-[${field.offsetTop + 20 * (r - 1) - 4}px]`,
@@ -50,7 +64,147 @@
           // "bg-white", "rounded-full", "border", "border-gray-900"
         );
 
-        dot.onclick = (e) => dot.classList.add("rounded-full", "bg-blue-700");
+        occupiedDots[dotId] = false;
+
+        dot.onclick = (e) => {
+          const dotId = Number(dot.id);
+
+          if (occupiedDots[dotId]) return;
+
+          occupiedDots[dotId] = true;
+
+          dot.classList.add("rounded-full", "bg-blue-700");
+
+          let currentLeader = -1;
+
+          // W
+          if (occupiedDots[dotId - 1]) {
+            const wLeader = leaders[dotId - 1];
+            if (currentLeader === -1) {
+              unions[wLeader].push(dotId);
+              leaders[dotId] = wLeader;
+              currentLeader = wLeader;
+            } else if (currentLeader !== wLeader) {
+              unions[currentLeader].push(...unions[wLeader]);
+              unions[wLeader].forEach(x => leaders[x] = currentLeader);
+              unions[wLeader] = undefined;
+              leaders[dotId] = currentLeader;
+            }
+          }
+          
+          // NW
+          if (occupiedDots[dotId - 1 - (columns - 1)]) {
+            const nwLeader = leaders[dotId - 1 - (columns - 1)];
+            if (currentLeader === -1) {
+              unions[nwLeader].push(dotId);
+              leaders[dotId] = nwLeader;
+              currentLeader = nwLeader;
+            } else if (currentLeader !== nwLeader) {
+              unions[currentLeader].push(...unions[nwLeader]);
+              unions[nwLeader].forEach(x => leaders[x] = currentLeader);
+              unions[nwLeader] = undefined;
+              leaders[dotId] = currentLeader;
+            }
+          }
+          
+          // N
+          if (occupiedDots[dotId - (columns - 1)]) {
+            const nLeader = leaders[dotId - (columns - 1)];
+            if (currentLeader === -1) {
+              unions[nLeader].push(dotId);
+              leaders[dotId] = nLeader;
+              currentLeader = nLeader;
+            } else if (currentLeader !== nLeader) {
+              unions[currentLeader].push(...unions[nLeader]);
+              unions[nLeader].forEach(x => leaders[x] = currentLeader);
+              unions[nLeader] = undefined;
+              leaders[dotId] = currentLeader;
+            }
+          }
+          
+          // NE
+          if (occupiedDots[dotId + 1 - (columns - 1)]) {
+            const neLeader = leaders[dotId + 1 - (columns - 1)];
+            if (currentLeader === -1) {
+              unions[neLeader].push(dotId);
+              leaders[dotId] = neLeader;
+              currentLeader = neLeader;
+            } else if (currentLeader !== neLeader) {
+              unions[currentLeader].push(...unions[neLeader]);
+              unions[neLeader].forEach(x => leaders[x] = currentLeader);
+              unions[neLeader] = undefined;
+              leaders[dotId] = currentLeader;
+            }
+          }
+          
+          // E
+          if (occupiedDots[dotId + 1]) {
+            const eLeader = leaders[dotId + 1];
+            if (currentLeader === -1) {
+              unions[eLeader].push(dotId);
+              leaders[dotId] = eLeader;
+              currentLeader = eLeader;
+            } else if (currentLeader !== eLeader) {
+              unions[currentLeader].push(...unions[eLeader]);
+              unions[eLeader].forEach(x => leaders[x] = currentLeader);
+              unions[eLeader] = undefined;
+              leaders[dotId] = currentLeader;
+            }
+          }
+          
+          // SE
+          if (occupiedDots[dotId + 1 + (columns - 1)]) {
+            const seLeader = leaders[dotId + 1 + (columns - 1)];
+            if (currentLeader === -1) {
+              unions[seLeader].push(dotId);
+              leaders[dotId] = seLeader;
+              currentLeader = seLeader;
+            } else if (currentLeader !== seLeader) {
+              unions[currentLeader].push(...unions[seLeader]);
+              unions[seLeader].forEach(x => leaders[x] = currentLeader);
+              unions[seLeader] = undefined;
+              leaders[dotId] = currentLeader;
+            }
+          }
+          
+          // S
+          if (occupiedDots[dotId + (columns - 1)]) {
+            const sLeader = leaders[dotId + (columns - 1)];
+            if (currentLeader === -1) {
+              unions[sLeader].push(dotId);
+              leaders[dotId] = sLeader;
+              currentLeader = sLeader;
+            } else if (currentLeader !== sLeader) {
+              unions[currentLeader].push(...unions[sLeader]);
+              unions[sLeader].forEach(x => leaders[x] = currentLeader);
+              unions[sLeader] = undefined;
+              leaders[dotId] = currentLeader;
+            }
+          }
+
+          // SW
+          if (occupiedDots[dotId - 1 + (columns - 1)]) {
+            const swLeader = leaders[dotId - 1 + (columns - 1)];
+            if (currentLeader === -1) {
+              unions[swLeader].push(dotId);
+              leaders[dotId] = swLeader;
+              currentLeader = swLeader;
+            } else if (currentLeader !== swLeader) {
+              unions[currentLeader].push(...unions[swLeader]);
+              unions[swLeader].forEach(x => leaders[x] = currentLeader);
+              unions[swLeader] = undefined;
+              leaders[dotId] = currentLeader;
+            }
+          }
+
+          if (currentLeader === -1) {
+            unions[dotId] = [dotId];
+            leaders[dotId] = dotId;
+          }
+
+          console.log(unions);
+          console.log(leaders);
+        }
 
         body.append(dot);
       }
