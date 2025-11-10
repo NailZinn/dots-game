@@ -104,10 +104,14 @@
 
             if (occupiedDots[dotId + direction[0]] && occupiedDots[dotId + direction[1]]) {
               const secondLeader = leaders[dotId + direction[1]];
-              unions[firstLeader].push(...unions[secondLeader]);
-              unions[secondLeader].forEach(x => leaders[x] = firstLeader);
-              unions[secondLeader] = undefined;
+              if (secondLeader !== firstLeader) {
+                unions[firstLeader].push(...unions[secondLeader]);
+                unions[secondLeader].forEach(x => leaders[x] = firstLeader);
+                unions[secondLeader] = undefined;
+              }
             }
+
+            break;
           }
 
           if (!dotIsInUnion) {
