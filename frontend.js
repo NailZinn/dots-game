@@ -2,16 +2,30 @@ const TOTAL_ROWS = 32;
 const TOTAL_COLUMNS = 39;
 const CELL_SIZE = 20;
 
-const DIRECTIONS = [
-  // horizontal
-  [-1, 1],
-  // diagonal (left to right)
-  [-1 - (TOTAL_COLUMNS - 1), 1 + (TOTAL_COLUMNS - 1)],
-  // vertical
-  [-(TOTAL_COLUMNS - 1), (TOTAL_COLUMNS - 1)],
-  // diagonal (right to left)
-  [1 - (TOTAL_COLUMNS - 1), -1 + (TOTAL_COLUMNS - 1)]
-];
+const LEFT = -1;
+const RIGHT = 1;
+const TOP = -(TOTAL_COLUMNS - 1);
+const BOTTOM = (TOTAL_COLUMNS - 1);
+const TOP_LEFT = LEFT + TOP;
+const TOP_RIGHT = RIGHT + TOP;
+const BOTTOM_LEFT = LEFT + BOTTOM;
+const BOTTOM_RIGHT = RIGHT + BOTTOM;
+
+const DIRECTIONS = [LEFT, RIGHT, TOP, BOTTOM, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT];
+
+/**
+ * @type {Map<number, number[]>}
+ */
+const DIRECTION_TO_UNION_MERGE_DIRECTION = new Map([
+  [LEFT, [TOP_RIGHT, RIGHT, BOTTOM_RIGHT]],
+  [RIGHT, [TOP_LEFT, LEFT, BOTTOM_LEFT]],
+  [TOP, [BOTTOM_LEFT, BOTTOM, BOTTOM_RIGHT]],
+  [BOTTOM, [TOP_LEFT, TOP, TOP_RIGHT]],
+  [TOP_LEFT, [TOP_RIGHT, RIGHT, BOTTOM_RIGHT, BOTTOM, BOTTOM_LEFT]],
+  [TOP_RIGHT, [TOP_LEFT, LEFT, BOTTOM_LEFT, BOTTOM, BOTTOM_RIGHT]],
+  [BOTTOM_LEFT, [TOP_LEFT, TOP, TOP_RIGHT, RIGHT, BOTTOM_RIGHT]],
+  [BOTTOM_RIGHT, [TOP_RIGHT, TOP, TOP_LEFT, LEFT, BOTTOM_LEFT]]
+]);
 
 const body = document.getElementById("body");
 
@@ -66,53 +80,53 @@ for (let r = 2; r <= TOTAL_ROWS; r++) {
 
     occupiedDots[dotId] = false;
 
-    dot.onclick = () => {
-      const dotId = Number(dot.id);
-
-      if (occupiedDots[dotId]) return;
-
-      occupiedDots[dotId] = true;
-
-      dot.classList.add("rounded-full", "bg-blue-700");
-
-      let dotIsInUnion = false;
-
-      // TODO: not only polar unions can be merged e.g. NW and SW
-      for (let direction of DIRECTIONS) {
-        const firstOccupiedDot = occupiedDots[dotId + direction[0]]
-          ? dotId + direction[0]
-          : occupiedDots[dotId + direction[1]]
-            ? dotId + direction[1]
-            : undefined;
-
-        if (firstOccupiedDot === undefined) continue;
-        
-        const firstLeader = leaders[firstOccupiedDot];
-        unions[firstLeader].push(dotId);
-        leaders[dotId] = firstLeader;
-        dotIsInUnion = true;
-
-        if (occupiedDots[dotId + direction[0]] && occupiedDots[dotId + direction[1]]) {
-          const secondLeader = leaders[dotId + direction[1]];
-          if (secondLeader !== firstLeader) {
-            unions[firstLeader].push(...unions[secondLeader]);
-            unions[secondLeader].forEach(x => leaders[x] = firstLeader);
-            unions[secondLeader] = undefined;
-          }
-        }
-
-        break;
-      }
-
-      if (!dotIsInUnion) {
-        unions[dotId] = [dotId];
-        leaders[dotId] = dotId;
-      }
-
-      console.log(unions);
-      console.log(leaders);
-    }
+    dot.onclick = () => handleDotClick(dot);
 
     body.append(dot);
   }
+}
+
+/**
+ * @param {HTMLDivElement} dot 
+ */
+function handleDotClick(dot) {
+  const dotId = Number(dot.id);
+
+  if (occupiedDots[dotId]) return;
+
+  occupiedDots[dotId] = true;
+
+  dot.classList.add("rounded-full", "bg-blue-700");
+
+  let dotIsInUnion = false;
+
+  for (let direction of DIRECTIONS) {
+    if (!occupiedDots[dotId + direction]) continue;
+
+    const firstLeader = leaders[dotId + direction];
+    unions[firstLeader].push(dotId);
+    leaders[dotId] = firstLeader;
+    dotIsInUnion = true;
+
+    for (let unionMergeDirection of DIRECTION_TO_UNION_MERGE_DIRECTION.get(direction)) {
+      if (!occupiedDots[dotId + unionMergeDirection]) continue;
+
+      const otherLeader = leaders[dotId + unionMergeDirection];
+      if (otherLeader !== firstLeader) {
+        unions[firstLeader].push(...unions[otherLeader]);
+        unions[otherLeader].forEach(x => leaders[x] = firstLeader);
+        delete unions[otherLeader];
+      }
+    }
+
+    break;
+  }
+
+  if (!dotIsInUnion) {
+    unions[dotId] = [dotId];
+    leaders[dotId] = dotId;
+  }
+
+  console.log("unions", unions);
+  console.log("leaders", leaders);
 }
