@@ -13,9 +13,6 @@ const BOTTOM_RIGHT = RIGHT + BOTTOM;
 
 const DIRECTIONS = [LEFT, RIGHT, TOP, BOTTOM, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT];
 
-/**
- * @type {Map<number, number[]>}
- */
 const DIRECTION_TO_UNION_MERGE_DIRECTION = new Map([
   [LEFT, [TOP_RIGHT, RIGHT, BOTTOM_RIGHT]],
   [RIGHT, [TOP_LEFT, LEFT, BOTTOM_LEFT]],
@@ -57,7 +54,7 @@ canvas.stroke();
 const occupiedDots = [];
 
 /**
- * @type {number[][]}
+ * @type {number[][][]}
  */
 const unions = [];
 
@@ -101,29 +98,43 @@ function handleDotClick(dot) {
   let dotIsInUnion = false;
 
   for (let direction of DIRECTIONS) {
-    if (!occupiedDots[dotId + direction]) continue;
+    const neighbor = dotId + direction;
 
-    const firstLeader = leaders[dotId + direction];
-    unions[firstLeader].push(dotId);
-    leaders[dotId] = firstLeader;
+    if (!occupiedDots[neighbor]) continue;
+
+    const leader = leaders[neighbor];
+
+    unions[leader][neighbor].push(dotId);
+    unions[leader][dotId] ??= [dotId];
+    unions[leader][dotId].push(neighbor);
+
+    if (dotIsInUnion) continue;
+
+    leaders[dotId] = leader;
+
     dotIsInUnion = true;
 
     for (let unionMergeDirection of DIRECTION_TO_UNION_MERGE_DIRECTION.get(direction)) {
-      if (!occupiedDots[dotId + unionMergeDirection]) continue;
+      const unionToMergeNeighbor = dotId + unionMergeDirection;
 
-      const otherLeader = leaders[dotId + unionMergeDirection];
-      if (otherLeader !== firstLeader) {
-        unions[firstLeader].push(...unions[otherLeader]);
-        unions[otherLeader].forEach(x => leaders[x] = firstLeader);
-        delete unions[otherLeader];
-      }
+      if (!occupiedDots[unionToMergeNeighbor]) continue;
+
+      const unionToMergeLeader = leaders[unionToMergeNeighbor];
+
+      if (unionToMergeLeader === leader) continue;
+
+      unions[unionToMergeLeader].forEach((unionItem, unionItemId) => {
+        unions[leader][unionItemId] = unionItem;
+        leaders[unionItemId] = leader;
+      });
+
+      delete unions[unionToMergeLeader];
     }
-
-    break;
   }
 
   if (!dotIsInUnion) {
-    unions[dotId] = [dotId];
+    unions[dotId] = [];
+    unions[dotId][dotId] = [dotId];
     leaders[dotId] = dotId;
   }
 
