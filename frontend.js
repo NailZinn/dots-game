@@ -13,6 +13,10 @@ const BOTTOM_RIGHT = RIGHT + BOTTOM;
 
 const DIRECTIONS = [LEFT, RIGHT, TOP, BOTTOM, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT];
 
+const LEFT_DIRECTIONS = new Set([TOP_LEFT, LEFT, BOTTOM_LEFT]);
+
+const RIGHT_DIRECTIONS = new Set([TOP_RIGHT, RIGHT, BOTTOM_RIGHT]);
+
 const DIRECTION_TO_UNION_MERGE_DIRECTION = new Map([
   [LEFT, [TOP_RIGHT, RIGHT, BOTTOM_RIGHT]],
   [RIGHT, [TOP_LEFT, LEFT, BOTTOM_LEFT]],
@@ -98,6 +102,8 @@ function handleDotClick(dot) {
   let dotIsInUnion = false;
 
   for (let direction of DIRECTIONS) {
+    if (isDirectionOutOfBorder(direction, dotId)) continue;
+
     const neighbor = dotId + direction;
 
     if (!occupiedDots[neighbor]) continue;
@@ -105,7 +111,7 @@ function handleDotClick(dot) {
     const leader = leaders[neighbor];
 
     unions[leader][neighbor].push(dotId);
-    unions[leader][dotId] ??= [dotId];
+    unions[leader][dotId] ??= [];
     unions[leader][dotId].push(neighbor);
 
     if (dotIsInUnion) continue;
@@ -115,6 +121,8 @@ function handleDotClick(dot) {
     dotIsInUnion = true;
 
     for (let unionMergeDirection of DIRECTION_TO_UNION_MERGE_DIRECTION.get(direction)) {
+      if (isDirectionOutOfBorder(unionMergeDirection, dotId)) continue;
+
       const unionToMergeNeighbor = dotId + unionMergeDirection;
 
       if (!occupiedDots[unionToMergeNeighbor]) continue;
@@ -134,10 +142,24 @@ function handleDotClick(dot) {
 
   if (!dotIsInUnion) {
     unions[dotId] = [];
-    unions[dotId][dotId] = [dotId];
+    unions[dotId][dotId] = [];
     leaders[dotId] = dotId;
   }
 
   console.log("unions", unions);
   console.log("leaders", leaders);
+}
+
+/**
+ * @param {number} direction
+ * @param {number} dotId
+ */
+function isDirectionOutOfBorder(direction, dotId) {
+  const dotIsOnLeftBorder = dotId % (TOTAL_COLUMNS - 1) === 0;
+  const dotIsOnRightBorder = (dotId + 1) % (TOTAL_COLUMNS - 1) === 0;
+
+  return (
+    LEFT_DIRECTIONS.has(direction) && dotIsOnLeftBorder ||
+    RIGHT_DIRECTIONS.has(direction) && dotIsOnRightBorder
+  );
 }
