@@ -148,6 +148,43 @@ function handleDotClick(dot) {
 
   console.log("unions", unions);
   console.log("leaders", leaders);
+
+  /**
+   * @type {number[][]}
+   */
+  const cycles = [];
+
+  const leader = leaders[dotId];
+
+  /**
+   * @type {[number, number[]][]}
+   */
+  const queue = [[leader, [leader]]];
+
+  while (queue.length !== 0) {
+    /**
+     * @type {[number, number[]]}
+     */
+    const [currentDotId, currentPath] = queue.shift();
+
+    for (let neighbor of unions[leader][currentDotId]) {
+      const indexOfNeighborInPath = currentPath.indexOf(neighbor);
+
+      if (indexOfNeighborInPath === -1) {
+        queue.push([neighbor, [...currentPath, neighbor]]);
+        continue;
+      }
+
+      const cycle = currentPath.slice(indexOfNeighborInPath);
+      const normalizedCycle = normalizeCycle(cycle);
+
+      if (cycle.length > 2 && cycles.every(x => normalizeCycle(x) !== normalizedCycle)) {
+        cycles.push(cycle);
+      }
+    }
+  }
+
+  console.log("cycles", cycles);
 }
 
 /**
@@ -162,4 +199,13 @@ function isDirectionOutOfBorder(direction, dotId) {
     LEFT_DIRECTIONS.has(direction) && dotIsOnLeftBorder ||
     RIGHT_DIRECTIONS.has(direction) && dotIsOnRightBorder
   );
+}
+
+/**
+ * @param {number[]} cycle 
+ */
+function normalizeCycle(cycle) {
+  return cycle
+    .toSorted()
+    .toString();
 }
