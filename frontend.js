@@ -55,7 +55,7 @@ canvas.stroke();
 /**
  * @type {boolean[]}
  */
-const occupiedDots = [];
+const board = [];
 
 /**
  * @type {number[][][]}
@@ -66,6 +66,11 @@ const unions = [];
  * @type {number[]}
  */
 const leaders = [];
+
+/**
+ * @type {boolean[]}
+ */
+const occupiedDots = [];
 
 for (let r = 2; r <= TOTAL_ROWS; r++) {
   for (let c = 2; c <= TOTAL_COLUMNS; c++) {
@@ -79,7 +84,7 @@ for (let r = 2; r <= TOTAL_ROWS; r++) {
       // "bg-white", "rounded-full", "border", "border-gray-900"
     );
 
-    occupiedDots[dotId] = false;
+    board[dotId] = false;
 
     dot.onclick = () => handleDotClick(dot);
 
@@ -93,9 +98,9 @@ for (let r = 2; r <= TOTAL_ROWS; r++) {
 function handleDotClick(dot) {
   const dotId = Number(dot.id);
 
-  if (occupiedDots[dotId]) return;
+  if (board[dotId]) return;
 
-  occupiedDots[dotId] = true;
+  board[dotId] = true;
 
   dot.classList.add("rounded-full", "bg-blue-700");
 
@@ -106,7 +111,7 @@ function handleDotClick(dot) {
 
     const neighbor = dotId + direction;
 
-    if (!occupiedDots[neighbor]) continue;
+    if (!board[neighbor]) continue;
 
     const leader = leaders[neighbor];
 
@@ -125,7 +130,7 @@ function handleDotClick(dot) {
 
       const unionToMergeNeighbor = dotId + unionMergeDirection;
 
-      if (!occupiedDots[unionToMergeNeighbor]) continue;
+      if (!board[unionToMergeNeighbor]) continue;
 
       const unionToMergeLeader = leaders[unionToMergeNeighbor];
 
@@ -176,15 +181,128 @@ function handleDotClick(dot) {
       }
 
       const cycle = currentPath.slice(indexOfNeighborInPath);
-      const normalizedCycle = normalizeCycle(cycle);
+      const comparableCycle = toComparable(cycle);
 
-      if (cycle.length > 2 && cycles.every(x => normalizeCycle(x) !== normalizedCycle)) {
+      if (cycle.length > 3 && cycles.every(x => toComparable(x) !== comparableCycle)) {
         cycles.push(cycle);
       }
     }
   }
 
   console.log("cycles", cycles);
+
+  /**
+   * @type {[number, number, number, number]}
+   */
+  const extremePoints = [];
+
+  const uniqueDotsFromCycles = new Set(
+    cycles.flatMap(x => x)
+  );
+
+  for (let dot of uniqueDotsFromCycles) {
+    const leftOffset = dot % (TOTAL_COLUMNS - 1);
+    const topOffset = Math.trunc(dot / (TOTAL_COLUMNS - 1));
+    
+    if (extremePoints[0] === undefined || leftOffset < extremePoints[0]) extremePoints[0] = leftOffset;
+    if (extremePoints[1] === undefined || leftOffset > extremePoints[1]) extremePoints[1] = leftOffset;
+    if (extremePoints[2] === undefined || topOffset < extremePoints[2]) extremePoints[2] = topOffset;
+    if (extremePoints[3] === undefined || topOffset > extremePoints[3]) extremePoints[3] = topOffset;
+  }
+
+  /**
+   * @type {number[]}
+   */
+  const dotsWithinExtremePoints = [];
+
+  for (let dot = 0; dot < board.length; dot++) {
+    if (!board[dot]) continue;
+
+    const leftOffset = dot % (TOTAL_COLUMNS - 1);
+    const topOffset = Math.trunc(dot / (TOTAL_COLUMNS - 1));
+
+    if (
+      extremePoints[0] <= leftOffset && leftOffset <= extremePoints[1] &&
+      extremePoints[2] <= topOffset && topOffset <= extremePoints[3]
+    ) {
+      dotsWithinExtremePoints.push(dot);
+    }
+  }
+
+  /**
+   * @type {number[][]}
+   */
+  const polygons = [];
+
+  // TODO: https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/isPointInPath - alternative to ray cast
+  cyclesloop:
+  for (let cycle of cycles) {
+    let cycleIsInPolygons = false;
+
+    for (let dot of dotsWithinExtremePoints) {
+      if (occupiedDots[dot]) continue cyclesloop;
+
+      if (cycle.indexOf(dot) !== -1) continue;
+
+      let intersectionCount = 0;
+      let ray = dot;
+
+      while (ray % (TOTAL_COLUMNS - 1) <= extremePoints[1]) {
+        ray++;
+        const intersectionIndex = cycle.indexOf(ray);
+
+        if (intersectionIndex === -1) continue;
+
+        intersectionCount++;
+
+        const intersection = cycle[intersectionIndex];
+        const intersectionTopOffset = Math.trunc(intersection / (TOTAL_COLUMNS - 1));
+        const beforeIntersection = cycle[(intersectionIndex - 1 + cycle.length) % cycle.length];
+        const beforeIntersectionTopOffset = Math.trunc(beforeIntersection / (TOTAL_COLUMNS - 1));
+        const afterIntersection = cycle[(intersectionIndex + 1) % cycle.length];
+        const afterIntersectionTopOffset = Math.trunc(afterIntersection / (TOTAL_COLUMNS - 1));
+
+        if (
+          beforeIntersectionTopOffset <= intersectionTopOffset && intersectionTopOffset >= afterIntersectionTopOffset ||
+          beforeIntersectionTopOffset >= intersectionTopOffset && intersectionTopOffset <= afterIntersectionTopOffset
+        ) {
+          intersectionCount++;
+        }
+      }
+
+      if (!cycleIsInPolygons && intersectionCount % 2 === 1) {
+        polygons.push(cycle);
+        cycleIsInPolygons = true;
+      }
+    }
+  }
+
+  console.log("polygons", polygons);
+
+  canvas.strokeStyle = "blue";
+  canvas.lineWidth = 2;
+  canvas.fillStyle = "rgb(0 0 255 / 40%)";
+
+  for (let polygon of polygons) {
+    const path = new Path2D();
+
+    const x = polygon[0] % (TOTAL_COLUMNS - 1) + 1;
+    const y = Math.trunc(polygon[0] / (TOTAL_COLUMNS - 1)) + 1;
+
+    path.moveTo(x * CELL_SIZE, y * CELL_SIZE);
+
+    for (let i = 1; i < polygon.length; i++) {
+      const x = polygon[i] % (TOTAL_COLUMNS - 1) + 1;
+      const y = Math.trunc(polygon[i] / (TOTAL_COLUMNS - 1)) + 1;
+
+      path.lineTo(x * CELL_SIZE, y * CELL_SIZE);
+    }
+
+    path.lineTo(x * CELL_SIZE, y * CELL_SIZE);
+
+    canvas.stroke(path);
+    canvas.fill(path);
+  }
 }
 
 /**
@@ -202,10 +320,10 @@ function isDirectionOutOfBorder(direction, dotId) {
 }
 
 /**
- * @param {number[]} cycle 
+ * @param {Array} array
  */
-function normalizeCycle(cycle) {
-  return cycle
+function toComparable(array) {
+  return array
     .toSorted()
     .toString();
 }
