@@ -68,9 +68,9 @@ const unions = [];
 const leaders = [];
 
 /**
- * @type {boolean[]}
+ * @type {Set<number>}
  */
-const occupiedDots = [];
+const occupiedDots = new Set();
 
 for (let r = 2; r <= TOTAL_ROWS; r++) {
   for (let c = 2; c <= TOTAL_COLUMNS; c++) {
@@ -230,60 +230,105 @@ function handleDotClick(dot) {
   }
 
   /**
-   * @type {number[][]}
+   * @type {number[]}
    */
-  const polygons = [];
+  let mainPolygon = undefined;
+
+  /**
+   * @type {number[]}
+   */
+  let adjacentPolygon = undefined;
+  let skipAdjacentPolygon = false;
+
+  /**
+   * @type {Set<number>}
+   */
+  const eventuallyOccupiedDots = new Set();
 
   // TODO: https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/isPointInPath - alternative to ray cast
   cyclesloop:
   for (let cycle of cycles) {
-    let cycleIsInPolygons = false;
+    let isPolygon = false;
 
     for (let dot of dotsWithinExtremePoints) {
-      if (occupiedDots[dot]) continue cyclesloop;
+      if (occupiedDots.has(dot)) continue cyclesloop;
 
-      if (cycle.indexOf(dot) !== -1) continue;
+      if (cycle.includes(dot)) continue;
 
-      let intersectionCount = 0;
-      let ray = dot;
+      const [intersectionCount, _] = rayCast(dot, cycle, extremePoints[1]);
 
-      while (ray % (TOTAL_COLUMNS - 1) <= extremePoints[1]) {
-        ray++;
-        const intersectionIndex = cycle.indexOf(ray);
+      // dot is not in cycle => cycle is not a polygon
+      if (intersectionCount % 2 === 0) continue;
 
-        if (intersectionIndex === -1) continue;
+      eventuallyOccupiedDots.add(dot);
 
-        intersectionCount++;
+      if (isPolygon) continue;
 
-        const intersection = cycle[intersectionIndex];
-        const intersectionTopOffset = Math.trunc(intersection / (TOTAL_COLUMNS - 1));
-        const beforeIntersection = cycle[(intersectionIndex - 1 + cycle.length) % cycle.length];
-        const beforeIntersectionTopOffset = Math.trunc(beforeIntersection / (TOTAL_COLUMNS - 1));
-        const afterIntersection = cycle[(intersectionIndex + 1) % cycle.length];
-        const afterIntersectionTopOffset = Math.trunc(afterIntersection / (TOTAL_COLUMNS - 1));
+      const sharedDotsCount = mainPolygon?.filter(x => cycle.includes(x)).length;
 
-        if (
-          beforeIntersectionTopOffset <= intersectionTopOffset && intersectionTopOffset >= afterIntersectionTopOffset ||
-          beforeIntersectionTopOffset >= intersectionTopOffset && intersectionTopOffset <= afterIntersectionTopOffset
-        ) {
-          intersectionCount++;
-        }
+      if (
+        // first detected main polygon
+        mainPolygon === undefined ||
+        // cycle is a superset of main polygon => replace main polygon with a new one
+        sharedDotsCount > 1 && cycle.length > mainPolygon.length
+      ) {
+        mainPolygon = cycle;
+        isPolygon = true;
+        continue;
       }
 
-      if (!cycleIsInPolygons && intersectionCount % 2 === 1) {
-        polygons.push(cycle);
-        cycleIsInPolygons = true;
+      // cycle is an adjacent polygon connected to main polygon by exactly 1 dot
+      if (sharedDotsCount === 1 && !skipAdjacentPolygon) {
+        const figure = [
+          ...mainPolygon.toSpliced(mainPolygon.indexOf(dotId), 1),
+          ...cycle.toSpliced(cycle.indexOf(dotId), 1)
+        ];
+        const [intersectionCount, lastIntersection] = rayCast(dotId, figure, extremePoints[1]);
+
+        // adjacent polygon and main polygon are on the same side of connection dot
+        if (intersectionCount % 2 === 0) {
+          // mark all remaining variations of adjacent polygon as skipped
+          skipAdjacentPolygon = true
+          
+          // replace main polygon with a new one if it was intersected last
+          if (cycle.includes(lastIntersection)) {
+            mainPolygon = cycle;
+            isPolygon = true;
+          }
+          
+          continue;
+        }
+        
+        // adjacent polygon and main polygon are on different sides of connection dot
+        if (
+          // first detected adjacent polygon
+          adjacentPolygon === undefined ||
+          // cycle is a superset of main polygon => replace main polygon with a new one
+          // note: number of shared points between cycle and adjacentPolygon always > 1,
+          // so calculating number of shared dots between cycle and adjacentPolygon is redundant
+          cycle.length > adjacentPolygon.length
+        ) {
+          adjacentPolygon = cycle;
+          isPolygon = true;
+          continue;
+        }
       }
     }
   }
 
-  console.log("polygons", polygons);
+  eventuallyOccupiedDots.forEach(x => occupiedDots.add(x));
+
+  console.log("occupied dots", eventuallyOccupiedDots);
+  console.log("main polygon", mainPolygon);
+  console.log("adjacent polygon", adjacentPolygon);
 
   canvas.strokeStyle = "blue";
   canvas.lineWidth = 2;
   canvas.fillStyle = "rgb(0 0 255 / 40%)";
 
-  for (let polygon of polygons) {
+  for (let polygon of [mainPolygon, adjacentPolygon]) {
+    if (polygon === undefined) continue;
+
     const path = new Path2D();
 
     const x = polygon[0] % (TOTAL_COLUMNS - 1) + 1;
@@ -303,6 +348,43 @@ function handleDotClick(dot) {
     canvas.stroke(path);
     canvas.fill(path);
   }
+}
+
+/**
+ * @param {number} dot
+ * @param {number[]} figure
+ * @param {number} rightBorder
+ * @returns {[number, number]}
+ */
+function rayCast(dot, figure, rightBorder) {
+  let intersectionCount = 0;
+  let lastIntersection = -1;
+  let ray = dot;
+
+  while (ray % (TOTAL_COLUMNS - 1) < rightBorder) {
+    ray++;
+    const intersectionIndex = figure.indexOf(ray);
+
+    if (intersectionIndex === -1) continue;
+
+    intersectionCount++;
+
+    const intersection = figure[intersectionIndex];
+    const intersectionTopOffset = Math.trunc(intersection / (TOTAL_COLUMNS - 1));
+    const beforeIntersection = figure[(intersectionIndex - 1 + figure.length) % figure.length];
+    const beforeIntersectionTopOffset = Math.trunc(beforeIntersection / (TOTAL_COLUMNS - 1));
+    const afterIntersection = figure[(intersectionIndex + 1) % figure.length];
+    const afterIntersectionTopOffset = Math.trunc(afterIntersection / (TOTAL_COLUMNS - 1));
+
+    if (
+      beforeIntersectionTopOffset <= intersectionTopOffset && intersectionTopOffset >= afterIntersectionTopOffset ||
+      beforeIntersectionTopOffset >= intersectionTopOffset && intersectionTopOffset <= afterIntersectionTopOffset
+    ) {
+      intersectionCount++;
+    }
+  }
+
+  return [intersectionCount, lastIntersection];
 }
 
 /**
