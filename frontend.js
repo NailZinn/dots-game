@@ -247,7 +247,6 @@ function handleDotClick(dot) {
    */
   const eventuallyOccupiedDots = new Set();
 
-  // TODO: https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/isPointInPath - alternative to ray cast
   cyclesloop:
   for (let cycle of cycles) {
     let isPolygon = false;
