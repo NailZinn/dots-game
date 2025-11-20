@@ -254,7 +254,7 @@ function handleDotClick(dot) {
     for (let dot of dotsWithinExtremePoints) {
       if (cycle.includes(dot)) continue;
 
-      const [intersectionCount, _] = rayCast(dot, cycle, extremePoints[1]);
+      const [intersectionCount, _] = rayCast(dot, cycle, RIGHT, extremePoints[1]);
 
       // dot is not in cycle => cycle is not a polygon
       if (intersectionCount % 2 === 0) continue;
@@ -279,13 +279,19 @@ function handleDotClick(dot) {
         continue;
       }
 
-      // cycle is an adjacent polygon connected to main polygon by exactly 1 dot
+      // cycle is an adjacent polygon connected to main polygon by exactly 1 dot,
+      // which is currently clicked dot
       if (sharedDotsCount === 1 && !skipAdjacentPolygon) {
         const figure = [
           ...mainPolygon.toSpliced(mainPolygon.indexOf(dotId), 1),
           ...cycle.toSpliced(cycle.indexOf(dotId), 1)
         ];
-        const [intersectionCount, lastIntersection] = rayCast(dotId, figure, extremePoints[1]);
+
+        const [rayDirection, rayBorder] = [mainPolygon, cycle].some(x => x.includes(dotId + TOP_RIGHT) && x.includes(dotId + BOTTOM_RIGHT))
+          ? [RIGHT, extremePoints[1]]
+          : [TOP, extremePoints[2]];
+
+        const [intersectionCount, lastIntersection] = rayCast(dotId, figure, rayDirection, rayBorder);
 
         // adjacent polygon and main polygon are on the same side of connection dot
         if (intersectionCount % 2 === 0) {
@@ -355,16 +361,24 @@ function handleDotClick(dot) {
 /**
  * @param {number} dot
  * @param {number[]} figure
- * @param {number} rightBorder
+ * @param {number} direction
+ * @param {number} border
  * @returns {[number, number]}
  */
-function rayCast(dot, figure, rightBorder) {
+function rayCast(dot, figure, direction, border) {
   let intersectionCount = 0;
   let lastIntersection = -1;
   let ray = dot;
 
-  while (ray % (TOTAL_COLUMNS - 1) < rightBorder) {
-    ray++;
+  /**
+   * @type {[(ray: number) => boolean, (intersection: number) => number]}
+   */
+  const [borderCheck, getOffset] = direction === RIGHT
+    ? [x => x % (TOTAL_COLUMNS - 1) < border, x => Math.trunc(x / (TOTAL_COLUMNS - 1))]
+    : [x => Math.trunc(x / (TOTAL_COLUMNS - 1)) > border, x => x % (TOTAL_COLUMNS - 1)];
+
+  while (borderCheck(ray)) {
+    ray += direction;
     const intersectionIndex = figure.indexOf(ray);
 
     if (intersectionIndex === -1) continue;
@@ -372,19 +386,19 @@ function rayCast(dot, figure, rightBorder) {
     intersectionCount++;
 
     const intersection = figure[intersectionIndex];
-    const liftedIntersectionTopOffset = Math.trunc(intersection / (TOTAL_COLUMNS - 1)) - 0.1;
+    const shiftedIntersectionOffset = getOffset(intersection) - 0.1;
     const beforeIntersection = figure[(intersectionIndex - 1 + figure.length) % figure.length];
-    const beforeIntersectionTopOffset = Math.trunc(beforeIntersection / (TOTAL_COLUMNS - 1));
+    const beforeIntersectionOffset = getOffset(beforeIntersection);
     const afterIntersection = figure[(intersectionIndex + 1) % figure.length];
-    const afterIntersectionTopOffset = Math.trunc(afterIntersection / (TOTAL_COLUMNS - 1));
+    const afterIntersectionOffset = getOffset(afterIntersection);
 
-    // raised ray is above both adjacent points => no intersection
-    if (beforeIntersectionTopOffset > liftedIntersectionTopOffset && liftedIntersectionTopOffset < afterIntersectionTopOffset) {
+    // up/left shifted ray is above/to the left of both adjacent points => no intersection
+    if (beforeIntersectionOffset > shiftedIntersectionOffset && shiftedIntersectionOffset < afterIntersectionOffset) {
       intersectionCount--;
     }
 
-    // raised ray is below both adjacent points => 2 intersections
-    if (beforeIntersectionTopOffset < liftedIntersectionTopOffset && liftedIntersectionTopOffset > afterIntersectionTopOffset) {
+    // up/left shifted ray is below/to the right of both adjacent points => 2 intersections
+    if (beforeIntersectionOffset < shiftedIntersectionOffset && shiftedIntersectionOffset > afterIntersectionOffset) {
       intersectionCount++;
     }
   }
