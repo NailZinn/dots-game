@@ -173,6 +173,8 @@ function handleDotClick(dot) {
     const [currentDotId, currentPath] = queue.shift();
 
     for (let neighbor of unions[leader][currentDotId]) {
+      if (occupiedDots.has(neighbor)) continue;
+
       const indexOfNeighborInPath = currentPath.indexOf(neighbor);
 
       if (indexOfNeighborInPath === -1) {
@@ -251,14 +253,15 @@ function handleDotClick(dot) {
     let isPolygon = false;
 
     for (let dot of dotsWithinExtremePoints) {
-      if (occupiedDots.has(dot)) continue cyclesloop;
-
       if (cycle.includes(dot)) continue;
 
       const [intersectionCount, _] = rayCast(dot, cycle, extremePoints[1]);
 
       // dot is not in cycle => cycle is not a polygon
       if (intersectionCount % 2 === 0) continue;
+
+      // dot is in cycle, but already occupied
+      if (occupiedDots.has(dot)) continue cyclesloop;
 
       eventuallyOccupiedDots.add(dot);
 
@@ -370,16 +373,19 @@ function rayCast(dot, figure, rightBorder) {
     intersectionCount++;
 
     const intersection = figure[intersectionIndex];
-    const intersectionTopOffset = Math.trunc(intersection / (TOTAL_COLUMNS - 1));
+    const liftedIntersectionTopOffset = Math.trunc(intersection / (TOTAL_COLUMNS - 1)) - 0.1;
     const beforeIntersection = figure[(intersectionIndex - 1 + figure.length) % figure.length];
     const beforeIntersectionTopOffset = Math.trunc(beforeIntersection / (TOTAL_COLUMNS - 1));
     const afterIntersection = figure[(intersectionIndex + 1) % figure.length];
     const afterIntersectionTopOffset = Math.trunc(afterIntersection / (TOTAL_COLUMNS - 1));
 
-    if (
-      beforeIntersectionTopOffset <= intersectionTopOffset && intersectionTopOffset >= afterIntersectionTopOffset ||
-      beforeIntersectionTopOffset >= intersectionTopOffset && intersectionTopOffset <= afterIntersectionTopOffset
-    ) {
+    // raised ray is above both adjacent points => no intersection
+    if (beforeIntersectionTopOffset > liftedIntersectionTopOffset && liftedIntersectionTopOffset < afterIntersectionTopOffset) {
+      intersectionCount--;
+    }
+
+    // raised ray is below both adjacent points => 2 intersections
+    if (beforeIntersectionTopOffset < liftedIntersectionTopOffset && liftedIntersectionTopOffset > afterIntersectionTopOffset) {
       intersectionCount++;
     }
   }
