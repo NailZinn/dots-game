@@ -161,6 +161,8 @@ function handleDotClick(dotElement) {
   console.log("polygons", polygons);
 
   drawPolygons(polygons, canvas);
+
+  excludeDotsWithinPolygonsFromGame(polygons);
 }
 
 /**
@@ -250,6 +252,8 @@ function getDotsWithinExtremePoints(extremePoints, predicate) {
     if (!predicate(dot)) continue;
 
     const [leftOffset, topOffset] = getOffsets(dot);
+
+    if (topOffset > extremePoints[3]) break;
 
     if (
       extremePoints[0] <= leftOffset && leftOffset <= extremePoints[1] &&
@@ -400,6 +404,25 @@ function drawPolygons(polygons, canvas) {
 
     canvas.stroke(path);
     canvas.fill(path);
+  }
+}
+
+/**
+ * @param {number[][]} polygons
+ */
+function excludeDotsWithinPolygonsFromGame(polygons) {
+  for (let polygon of polygons) {
+    const extremePoints = getExtremePoints(polygon);
+    const dotsToExclude = getDotsWithinExtremePoints(
+      extremePoints,
+      dot => !polygon.includes(dot) && raycast(dot, polygon, extremePoints[1]) % 2 === 1
+    );
+
+    for (let dotToExclude of dotsToExclude) {
+      const dotElement = document.getElementById(dotToExclude.toString());
+      dotElement.classList.replace("cursor-pointer", "cursor-not-allowed");
+      dotElement.onclick = undefined;
+    }
   }
 }
 
