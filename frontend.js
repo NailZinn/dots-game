@@ -83,11 +83,6 @@ const leaders = [];
  */
 const occupiedDots = new Set();
 
-/**
- * @type {number[][]}
- */
-const polygons = [];
-
 for (let r = 2; r <= TOTAL_ROWS; r++) {
   for (let c = 2; c <= TOTAL_COLUMNS; c++) {
     const dot = document.createElement("div");
@@ -219,11 +214,11 @@ function handleDotClick(dot) {
   /**
    * @type {number[][]}
    */
-  const newPolygons = [];
+  const polygons = [];
 
   outer:
   for (let dot of unoccupiedDotsWithinExtremePoints) {
-    for (let polygon of newPolygons) {
+    for (let polygon of polygons) {
       const [intersectionCount, _] = raycast(dot, polygon, RIGHT, extremePoints[1]);
 
       if (intersectionCount % 2 == 1) {
@@ -249,7 +244,6 @@ function handleDotClick(dot) {
 
     while (stack.length > 0) {
       const currentDot = stack.pop();
-      visited.add(currentDot);
 
       if (
         leaders[currentDot] === leader
@@ -273,6 +267,7 @@ function handleDotClick(dot) {
       for (let direction of AXIS_DIRECTIONS) {
         if (!visited.has(currentDot + direction)) {
           stack.push(currentDot + direction);
+          visited.add(currentDot + direction);
         }
       }
 
@@ -282,200 +277,66 @@ function handleDotClick(dot) {
           !visited.has(currentDot + direction)
         ) {
           stack.push(currentDot + direction);
+          visited.add(currentDot + direction);
         }
       }
     }
 
     occupiedDots.add(dot);
-    newPolygons.push(polygon);
-  }
 
-  polygons.push(...newPolygons);
+    /*
+      unions[leader] =
+      [
+        [0] = [1, 2, 3, 5],
+        [1] = [0, 4, 6],
+        [4] = [1, 2, 7],
+        [2] = [0, 4, 8]
+      ]
+      polygon = [4, 1, 2, 0], dotId = 0
+      polygon = [0, 1, 2, 4]
+      polygon = [0, 1, 2, 4]
+      polygon = [0, 1, 4, 2]
+    */
+
+    let pointer = dotId;
+    let replaceIndex = polygon.indexOf(pointer);
+
+    for (let i = 0; i < polygon.length - 1; i++) {
+      [polygon[i], polygon[replaceIndex]] = [pointer, polygon[i]];
+      pointer = unions[leader][pointer].find(x => polygon.includes(x) && polygon.indexOf(x) > i);
+      replaceIndex = polygon.indexOf(pointer);
+    }
+
+    polygons.push(polygon);
+  }
 
   console.log("occupied dots", occupiedDots);
   console.log("polygons", polygons);
 
-  // /**
-  //  * @type {number[][]}
-  //  */
-  // const cycles = [];
+  canvas.strokeStyle = "blue";
+  canvas.lineWidth = 2;
+  canvas.fillStyle = "rgb(0 0 255 / 40%)";
 
-  // /**
-  //  * @type {[number, number[]][]}
-  //  */
-  // const queue = [[leader, [leader]]];
+  for (let polygon of polygons) {
+    const path = new Path2D();
 
-  // while (queue.length !== 0) {
-  //   /**
-  //    * @type {[number, number[]]}
-  //    */
-  //   const [currentDotId, currentPath] = queue.shift();
+    const x = polygon[0] % (TOTAL_COLUMNS - 1) + 1;
+    const y = Math.trunc(polygon[0] / (TOTAL_COLUMNS - 1)) + 1;
 
-  //   for (let neighbor of unions[leader][currentDotId]) {
-  //     if (occupiedDots.has(neighbor)) continue;
+    path.moveTo(x * CELL_SIZE, y * CELL_SIZE);
 
-  //     const indexOfNeighborInPath = currentPath.indexOf(neighbor);
+    for (let i = 1; i < polygon.length; i++) {
+      const x = polygon[i] % (TOTAL_COLUMNS - 1) + 1;
+      const y = Math.trunc(polygon[i] / (TOTAL_COLUMNS - 1)) + 1;
 
-  //     if (indexOfNeighborInPath === -1) {
-  //       queue.push([neighbor, [...currentPath, neighbor]]);
-  //       continue;
-  //     }
+      path.lineTo(x * CELL_SIZE, y * CELL_SIZE);
+    }
 
-  //     const cycle = currentPath.slice(indexOfNeighborInPath);
-  //     const comparableCycle = toComparable(cycle);
+    path.lineTo(x * CELL_SIZE, y * CELL_SIZE);
 
-  //     if (cycle.length > 3 && cycles.every(x => toComparable(x) !== comparableCycle)) {
-  //       cycles.push(cycle);
-  //     }
-  //   }
-  // }
-
-  // console.log("cycles", cycles);
-
-  // /**
-  //  * @type {number[]}
-  //  */
-  // let mainPolygon = undefined;
-
-  // /**
-  //  * @type {number[]}
-  //  */
-  // let adjacentPolygon = undefined;
-  // let skipAdjacentPolygon = false;
-
-  // /**
-  //  * @type {Set<number>}
-  //  */
-  // const eventuallyOccupiedDots = new Set();
-
-  // cyclesloop:
-  // for (let cycle of cycles) {
-  //   for (let existingPolygon of polygons.filter(x => x.some(dot => cycle.includes(dot)))) {
-  //     for (let i = 0; i < cycle.length; i++) {
-  //       const intersectionIndex = existingPolygon.indexOf(cycle[i]);
-
-  //       if (intersectionIndex === -1) continue;
-
-  //       const nextDotInCycle = cycle[(i + 1) % cycle.length];
-  //       const beforeIntersection = existingPolygon[(intersectionIndex - 1 + existingPolygon.length) % existingPolygon.length];
-  //       const afterIntersection = existingPolygon[(intersectionIndex + 1) % existingPolygon.length];
-
-  //       if (
-  //         nextDotInCycle !== beforeIntersection &&
-  //         nextDotInCycle !== afterIntersection &&
-  //         existingPolygon.includes(nextDotInCycle)
-  //       ) {
-  //         continue cyclesloop;
-  //       }
-  //     }
-  //   }
-
-  //   let occupiedDotsCount = 0;
-
-  //   for (let dot of unoccupiedDotsWithinExtremePoints) {
-  //     if (cycle.includes(dot)) continue;
-
-  //     const [intersectionCount, _] = raycast(dot, cycle, RIGHT, extremePoints[1]);
-
-  //     if (intersectionCount % 2 === 0) continue;
-
-  //     occupiedDotsCount++;
-
-  //     if (occupiedDots.has(dot)) continue cyclesloop;
-
-  //     eventuallyOccupiedDots.add(dot);
-  //   }
-
-  //   if (occupiedDotsCount === 0) continue;
-
-  //   const sharedDotsCount = mainPolygon?.filter(x => cycle.includes(x)).length;
-
-  //   if (
-  //     // first detected main polygon
-  //     mainPolygon === undefined ||
-  //     // cycle is a superset of main polygon => replace main polygon with a new one
-  //     sharedDotsCount > 1 && cycle.length > mainPolygon.length
-  //   ) {
-  //     mainPolygon = cycle;
-  //     continue;
-  //   }
-
-  //   // cycle is an adjacent polygon connected to main polygon by exactly 1 dot,
-  //   // which is currently clicked dot
-  //   if (sharedDotsCount === 1 && !skipAdjacentPolygon) {
-  //     const figure = [
-  //       ...mainPolygon.toSpliced(mainPolygon.indexOf(dotId), 1),
-  //       ...cycle.toSpliced(cycle.indexOf(dotId), 1)
-  //     ];
-
-  //     const [rayDirection, rayBorder] = [mainPolygon, cycle].some(x => x.includes(dotId + TOP_RIGHT) && x.includes(dotId + BOTTOM_RIGHT))
-  //       ? [RIGHT, extremePoints[1]]
-  //       : [TOP, extremePoints[2]];
-
-  //     const [intersectionCount, lastIntersection] = raycast(dotId, figure, rayDirection, rayBorder);
-
-  //     // adjacent polygon and main polygon are on the same side of connection dot
-  //     if (intersectionCount % 2 === 0) {
-  //       // mark all remaining variations of adjacent polygon as skipped
-  //       skipAdjacentPolygon = true
-        
-  //       // replace main polygon with a new one if it was intersected last
-  //       if (cycle.includes(lastIntersection)) {
-  //         mainPolygon = cycle;
-  //       }
-        
-  //       continue;
-  //     }
-      
-  //     // adjacent polygon and main polygon are on different sides of connection dot
-  //     if (
-  //       // first detected adjacent polygon
-  //       adjacentPolygon === undefined ||
-  //       // cycle is a superset of main polygon => replace main polygon with a new one
-  //       // note: number of shared points between cycle and adjacentPolygon always > 1,
-  //       // so calculating number of shared dots between cycle and adjacentPolygon is redundant
-  //       cycle.length > adjacentPolygon.length
-  //     ) {
-  //       adjacentPolygon = cycle;
-  //       continue;
-  //     }
-  //   }
-  // }
-
-  // eventuallyOccupiedDots.forEach(x => occupiedDots.add(x));
-
-  // console.log("occupied dots", eventuallyOccupiedDots);
-  // console.log("main polygon", mainPolygon);
-  // console.log("adjacent polygon", adjacentPolygon);
-
-  // canvas.strokeStyle = "blue";
-  // canvas.lineWidth = 2;
-  // canvas.fillStyle = "rgb(0 0 255 / 40%)";
-
-  // for (let polygon of [mainPolygon, adjacentPolygon]) {
-  //   if (polygon === undefined) continue;
-
-  //   polygons.push(polygon);
-
-  //   const path = new Path2D();
-
-  //   const x = polygon[0] % (TOTAL_COLUMNS - 1) + 1;
-  //   const y = Math.trunc(polygon[0] / (TOTAL_COLUMNS - 1)) + 1;
-
-  //   path.moveTo(x * CELL_SIZE, y * CELL_SIZE);
-
-  //   for (let i = 1; i < polygon.length; i++) {
-  //     const x = polygon[i] % (TOTAL_COLUMNS - 1) + 1;
-  //     const y = Math.trunc(polygon[i] / (TOTAL_COLUMNS - 1)) + 1;
-
-  //     path.lineTo(x * CELL_SIZE, y * CELL_SIZE);
-  //   }
-
-  //   path.lineTo(x * CELL_SIZE, y * CELL_SIZE);
-
-  //   canvas.stroke(path);
-  //   canvas.fill(path);
-  // }
+    canvas.stroke(path);
+    canvas.fill(path);
+  }
 }
 
 /**
