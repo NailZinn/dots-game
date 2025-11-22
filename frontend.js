@@ -39,29 +39,11 @@ const DIAGONAL_DIRECTION_TO_AXIS_DIRECTIONS = new Map([
   [BOTTOM_RIGHT, [BOTTOM, RIGHT]]
 ]);
 
-const body = document.getElementById("body");
-
 /**
  * @type {HTMLCanvasElement}
  */
 const field = document.getElementById("field");
 const canvas = field.getContext("2d");
-
-canvas.lineWidth = 1;
-
-canvas.beginPath();
-
-for (let r = 1; r < TOTAL_ROWS; r++) {
-  canvas.moveTo(0, r * CELL_SIZE);
-  canvas.lineTo(field.offsetWidth, r * CELL_SIZE);
-}
-
-for (let c = 1; c < TOTAL_COLUMNS; c++) {
-  canvas.moveTo(c * CELL_SIZE, 0);
-  canvas.lineTo(c * CELL_SIZE, field.offsetHeight);
-}
-
-canvas.stroke();
 
 /**
  * @type {boolean[]}
@@ -83,63 +65,133 @@ const leaders = [];
  */
 const occupiedDots = new Set();
 
-for (let r = 2; r <= TOTAL_ROWS; r++) {
-  for (let c = 2; c <= TOTAL_COLUMNS; c++) {
-    const dot = document.createElement("div");
-    const dotId = (r - 2) * (TOTAL_COLUMNS - 1) + c - 2;
-    dot.id = dotId.toString();
-    dot.classList.add(
-      `left-[${field.offsetLeft + 20 * (c - 1) - 4}px]`,
-      `top-[${field.offsetTop + 20 * (r - 1) - 4}px]`,
-      "absolute", "w-2", "h-2", "cursor-pointer",
-      // "bg-white", "rounded-full", "border", "border-gray-900"
-    );
+drawField();
+drawDots();
 
-    board[dotId] = false;
+function drawField() {
+  canvas.lineWidth = 1;
+  
+  canvas.beginPath();
+  
+  for (let r = 1; r < TOTAL_ROWS; r++) {
+    canvas.moveTo(0, r * CELL_SIZE);
+    canvas.lineTo(field.offsetWidth, r * CELL_SIZE);
+  }
+  
+  for (let c = 1; c < TOTAL_COLUMNS; c++) {
+    canvas.moveTo(c * CELL_SIZE, 0);
+    canvas.lineTo(c * CELL_SIZE, field.offsetHeight);
+  }
+  
+  canvas.stroke();
+}
 
-    dot.onclick = () => handleDotClick(dot);
+function drawDots() {
+  const body = document.getElementById("body");
 
-    body.append(dot);
+  for (let r = 2; r <= TOTAL_ROWS; r++) {
+    for (let c = 2; c <= TOTAL_COLUMNS; c++) {
+      const dotElement = document.createElement("div");
+      const dot = (r - 2) * (TOTAL_COLUMNS - 1) + c - 2;
+
+      dotElement.id = dot.toString();
+      dotElement.classList.add(
+        `left-[${field.offsetLeft + CELL_SIZE * (c - 1) - 4}px]`,
+        `top-[${field.offsetTop + CELL_SIZE * (r - 1) - 4}px]`,
+        "absolute", "w-2", "h-2", "cursor-pointer",
+        // "bg-white", "rounded-full", "border", "border-gray-900"
+      );
+  
+      board[dot] = false;
+  
+      dotElement.onclick = () => handleDotClick(dotElement);
+  
+      body.append(dotElement);
+    }
   }
 }
 
 /**
- * @param {HTMLDivElement} dot 
+ * @param {HTMLDivElement} dotElement 
  */
-function handleDotClick(dot) {
-  const dotId = Number(dot.id);
+function handleDotClick(dotElement) {
+  const dot = Number(dotElement.id);
 
-  if (board[dotId]) return;
+  if (board[dot]) return;
 
-  board[dotId] = true;
+  board[dot] = true;
 
-  dot.classList.add("rounded-full", "bg-blue-700");
+  dotElement.classList.add("rounded-full", "bg-blue-700");
 
+  addDotToUnion(dot);
+
+  console.log("unions", unions);
+  console.log("leaders", leaders);
+
+  const leader = leaders[dot];
+
+  const extremePoints = getExtremePoints(
+    unions[leader]
+      .map(/**@returns {[number[], number]} */ (x, i) => [x, i])
+      .filter(x => x)
+      .map(([_, i]) => i)
+  );
+
+  console.log("extreme points", extremePoints);
+
+  /**
+   * @type {number[]}
+   */
+  const unoccupiedDotsWithinExtremePoints = getDotsWithinExtremePoints(
+    extremePoints,
+    dot => board[dot] && !occupiedDots.has(dot)
+      // uncomment once dots distinction is implemented
+      // && leaders[dot] !== leader
+  );
+
+  if (unoccupiedDotsWithinExtremePoints.length === 0) return;
+
+  console.log("unoccupied dots within extreme points", unoccupiedDotsWithinExtremePoints);
+
+  const polygons = detectPolygons(unoccupiedDotsWithinExtremePoints, extremePoints, dot, leader);
+  
+  if (polygons.length === 0) return;
+
+  console.log("occupied dots", occupiedDots);
+  console.log("polygons", polygons);
+
+  drawPolygons(polygons, canvas);
+}
+
+/**
+ * @param {number} dot
+ */
+function addDotToUnion(dot) {
   let dotIsInUnion = false;
 
   for (let direction of DIRECTIONS) {
-    if (isDirectionOutOfBorder(direction, dotId)) continue;
+    if (isDirectionOutOfBorder(direction, dot)) continue;
 
-    const neighbor = dotId + direction;
+    const neighbor = dot + direction;
 
     if (!board[neighbor]) continue;
 
     const leader = leaders[neighbor];
 
-    unions[leader][neighbor].push(dotId);
-    unions[leader][dotId] ??= [];
-    unions[leader][dotId].push(neighbor);
+    unions[leader][neighbor].push(dot);
+    unions[leader][dot] ??= [];
+    unions[leader][dot].push(neighbor);
 
     if (dotIsInUnion) continue;
 
-    leaders[dotId] = leader;
+    leaders[dot] = leader;
 
     dotIsInUnion = true;
 
     for (let unionMergeDirection of DIRECTION_TO_UNION_MERGE_DIRECTIONS.get(direction)) {
-      if (isDirectionOutOfBorder(unionMergeDirection, dotId)) continue;
+      if (isDirectionOutOfBorder(unionMergeDirection, dot)) continue;
 
-      const unionToMergeNeighbor = dotId + unionMergeDirection;
+      const unionToMergeNeighbor = dot + unionMergeDirection;
 
       if (!board[unionToMergeNeighbor]) continue;
 
@@ -157,26 +209,23 @@ function handleDotClick(dot) {
   }
 
   if (!dotIsInUnion) {
-    unions[dotId] = [];
-    unions[dotId][dotId] = [];
-    leaders[dotId] = dotId;
+    unions[dot] = [];
+    unions[dot][dot] = [];
+    leaders[dot] = dot;
   }
+}
 
-  console.log("unions", unions);
-  console.log("leaders", leaders);
-
-  const leader = leaders[dotId];
-
+/**
+ * @param {number[]} figure
+ */
+function getExtremePoints(figure) {
   /**
    * @type {[number, number, number, number]}
    */
   const extremePoints = [];
 
-  for (let dot = 0; dot < unions[leader].length; dot++) {
-    if (!unions[leader][dot]) continue;
-
-    const leftOffset = dot % (TOTAL_COLUMNS - 1);
-    const topOffset = Math.trunc(dot / (TOTAL_COLUMNS - 1));
+  for (let dot of figure) {
+    const [leftOffset, topOffset] = getOffsets(dot);
     
     if (extremePoints[0] === undefined || leftOffset < extremePoints[0]) extremePoints[0] = leftOffset;
     if (extremePoints[1] === undefined || leftOffset > extremePoints[1]) extremePoints[1] = leftOffset;
@@ -184,45 +233,54 @@ function handleDotClick(dot) {
     if (extremePoints[3] === undefined || topOffset > extremePoints[3]) extremePoints[3] = topOffset;
   }
 
-  console.log("extreme points", extremePoints);
+  return extremePoints;
+}
 
+/**
+ * @param {[number, number, number, number]} extremePoints
+ * @param {(dot: number) => boolean} predicate
+ */
+function getDotsWithinExtremePoints(extremePoints, predicate) {
   /**
    * @type {number[]}
    */
-  const unoccupiedDotsWithinExtremePoints = [];
+  const dotsWithinExtremePoints = [];
 
   for (let dot = 0; dot < board.length; dot++) {
-    if (
-      !board[dot] || occupiedDots.has(dot)
-      // uncomment once dots distinction is implemented
-      // || leaders[dot] === leader
-    ) continue;
+    if (!predicate(dot)) continue;
 
-    const leftOffset = dot % (TOTAL_COLUMNS - 1);
-    const topOffset = Math.trunc(dot / (TOTAL_COLUMNS - 1));
+    const [leftOffset, topOffset] = getOffsets(dot);
 
     if (
       extremePoints[0] <= leftOffset && leftOffset <= extremePoints[1] &&
       extremePoints[2] <= topOffset && topOffset <= extremePoints[3]
     ) {
-      unoccupiedDotsWithinExtremePoints.push(dot);
+      dotsWithinExtremePoints.push(dot);
     }
   }
 
-  console.log("unoccupied dots within extreme points", unoccupiedDotsWithinExtremePoints);
+  return dotsWithinExtremePoints
+}
 
+/**
+ * @param {number[]} innerDots
+ * @param {[number, number, number, number]} extremePoints
+ * @param {number} dot
+ * @param {number} unionLeader
+ */
+function detectPolygons(innerDots, extremePoints, dot, unionLeader) {
   /**
    * @type {number[][]}
    */
   const polygons = [];
 
   outer:
-  for (let dot of unoccupiedDotsWithinExtremePoints) {
+  for (let startDot of innerDots) {
     for (let polygon of polygons) {
-      const [intersectionCount, _] = raycast(dot, polygon, RIGHT, extremePoints[1]);
+      const intersectionCount = raycast(startDot, polygon, extremePoints[1]);
 
       if (intersectionCount % 2 == 1) {
-        occupiedDots.add(dot);
+        occupiedDots.add(startDot);
         continue outer; 
       }
     }
@@ -235,31 +293,30 @@ function handleDotClick(dot) {
     /**
      * @type {number[]}
      */
-    const stack = [dot];
+    const stack = [startDot];
 
     /**
      * @type {Set<number>}
      */
-    const visited = new Set([dot]);
+    const visited = new Set([startDot]);
 
     while (stack.length > 0) {
       const currentDot = stack.pop();
 
       if (
-        leaders[currentDot] === leader
+        leaders[currentDot] === unionLeader
         // probably remove once dots distinction is implemented
-        && currentDot !== dot
+        && currentDot !== startDot
       ) {
         polygon.push(currentDot);
         continue;
       }
 
-      const leftOffset = currentDot % (TOTAL_COLUMNS - 1);
-      const topOffset = Math.trunc(currentDot / (TOTAL_COLUMNS - 1));
+      const [leftOffset, topOffset] = getOffsets(currentDot);
 
       if (
         leftOffset === extremePoints[0] || leftOffset === extremePoints[1] ||
-        topOffset === extremePoints[2] || leftOffset === extremePoints[3]
+        topOffset === extremePoints[2] || topOffset === extremePoints[3]
       ) {
         continue outer;
       }
@@ -273,7 +330,7 @@ function handleDotClick(dot) {
 
       for (let direction of DIAGONAL_DIRECTIONS) {
         if (
-          DIAGONAL_DIRECTION_TO_AXIS_DIRECTIONS.get(direction).some(x => leaders[currentDot + x] !== leader) &&
+          DIAGONAL_DIRECTION_TO_AXIS_DIRECTIONS.get(direction).some(x => leaders[currentDot + x] !== unionLeader) &&
           !visited.has(currentDot + direction)
         ) {
           stack.push(currentDot + direction);
@@ -282,37 +339,48 @@ function handleDotClick(dot) {
       }
     }
 
-    occupiedDots.add(dot);
-
-    /*
-      unions[leader] =
-      [
-        [0] = [1, 2, 3, 5],
-        [1] = [0, 4, 6],
-        [4] = [1, 2, 7],
-        [2] = [0, 4, 8]
-      ]
-      polygon = [4, 1, 2, 0], dotId = 0
-      polygon = [0, 1, 2, 4]
-      polygon = [0, 1, 2, 4]
-      polygon = [0, 1, 4, 2]
-    */
-
-    let pointer = dotId;
-    let replaceIndex = polygon.indexOf(pointer);
-
-    for (let i = 0; i < polygon.length - 1; i++) {
-      [polygon[i], polygon[replaceIndex]] = [pointer, polygon[i]];
-      pointer = unions[leader][pointer].find(x => polygon.includes(x) && polygon.indexOf(x) > i);
-      replaceIndex = polygon.indexOf(pointer);
-    }
-
-    polygons.push(polygon);
+    occupiedDots.add(startDot);
+    polygons.push(reorderPolygon(polygon, dot, unionLeader));
   }
 
-  console.log("occupied dots", occupiedDots);
-  console.log("polygons", polygons);
+  return polygons;
+}
 
+/**
+ * @param {number[]} polygon
+ * @param {number} dot
+ * @param {number} unionLeader
+ * @example
+ * unions[leader] =
+ * [
+ *   [0] = [1, 2, 3, 5],
+ *   [1] = [0, 4, 6],
+ *   [4] = [1, 2, 7],
+ *   [2] = [0, 4, 8]
+ * ]
+ * polygon = [4, 1, 2, 0], dot = 0
+ * polygon = [0, 1, 2, 4]
+ * polygon = [0, 1, 2, 4]
+ * polygon = [0, 1, 4, 2]
+ */
+function reorderPolygon(polygon, dot, unionLeader) {
+  let pointer = dot;
+  let replaceIndex = polygon.indexOf(pointer);
+
+  for (let i = 0; i < polygon.length - 1; i++) {
+    [polygon[i], polygon[replaceIndex]] = [pointer, polygon[i]];
+    pointer = unions[unionLeader][pointer].find(x => polygon.includes(x) && polygon.indexOf(x) > i);
+    replaceIndex = polygon.indexOf(pointer);
+  }
+
+  return polygon;
+}
+
+/**
+ * @param {number[][]} polygons
+ * @param {CanvasRenderingContext2D} canvas
+ */
+function drawPolygons(polygons, canvas) {
   canvas.strokeStyle = "blue";
   canvas.lineWidth = 2;
   canvas.fillStyle = "rgb(0 0 255 / 40%)";
@@ -320,15 +388,11 @@ function handleDotClick(dot) {
   for (let polygon of polygons) {
     const path = new Path2D();
 
-    const x = polygon[0] % (TOTAL_COLUMNS - 1) + 1;
-    const y = Math.trunc(polygon[0] / (TOTAL_COLUMNS - 1)) + 1;
-
+    const [x, y] = getOffsets(polygon[0]).map(x => x + 1);    
     path.moveTo(x * CELL_SIZE, y * CELL_SIZE);
-
+    
     for (let i = 1; i < polygon.length; i++) {
-      const x = polygon[i] % (TOTAL_COLUMNS - 1) + 1;
-      const y = Math.trunc(polygon[i] / (TOTAL_COLUMNS - 1)) + 1;
-
+      const [x, y] = getOffsets(polygon[i]).map(x => x + 1);
       path.lineTo(x * CELL_SIZE, y * CELL_SIZE);
     }
 
@@ -342,24 +406,14 @@ function handleDotClick(dot) {
 /**
  * @param {number} dot
  * @param {number[]} figure
- * @param {number} direction
- * @param {number} border
- * @returns {[number, number]}
+ * @param {number} rightBorder
  */
-function raycast(dot, figure, direction, border) {
+function raycast(dot, figure, rightBorder) {
   let intersectionCount = 0;
-  let lastIntersection = -1;
   let ray = dot;
 
-  /**
-   * @type {[(ray: number) => boolean, (intersection: number) => number]}
-   */
-  const [borderCheck, getOffset] = direction === RIGHT
-    ? [x => x % (TOTAL_COLUMNS - 1) < border, x => Math.trunc(x / (TOTAL_COLUMNS - 1))]
-    : [x => Math.trunc(x / (TOTAL_COLUMNS - 1)) > border, x => x % (TOTAL_COLUMNS - 1)];
-
-  while (borderCheck(ray)) {
-    ray += direction;
+  while (ray % (TOTAL_COLUMNS - 1) < rightBorder) {
+    ray += RIGHT;
     const intersectionIndex = figure.indexOf(ray);
 
     if (intersectionIndex === -1) continue;
@@ -367,33 +421,33 @@ function raycast(dot, figure, direction, border) {
     intersectionCount++;
 
     const intersection = figure[intersectionIndex];
-    const shiftedIntersectionOffset = getOffset(intersection) - 0.1;
+    const liftedIntersectionTopOffset = getOffsets(intersection)[1] - 0.1;
     const beforeIntersection = figure[(intersectionIndex - 1 + figure.length) % figure.length];
-    const beforeIntersectionOffset = getOffset(beforeIntersection);
+    const beforeIntersectionTopOffset = getOffsets(beforeIntersection)[1];
     const afterIntersection = figure[(intersectionIndex + 1) % figure.length];
-    const afterIntersectionOffset = getOffset(afterIntersection);
+    const afterIntersectionTopOffset = getOffsets(afterIntersection)[1];
 
-    // up/left shifted ray is above/to the left of both adjacent points => no intersection
-    if (beforeIntersectionOffset > shiftedIntersectionOffset && shiftedIntersectionOffset < afterIntersectionOffset) {
+    // raised ray is above both adjacent points => no intersection
+    if (beforeIntersectionTopOffset > liftedIntersectionTopOffset && liftedIntersectionTopOffset < afterIntersectionTopOffset) {
       intersectionCount--;
     }
 
-    // up/left shifted ray is below/to the right of both adjacent points => 2 intersections
-    if (beforeIntersectionOffset < shiftedIntersectionOffset && shiftedIntersectionOffset > afterIntersectionOffset) {
+    // raised ray is below both adjacent points => 2 intersections
+    if (beforeIntersectionTopOffset < liftedIntersectionTopOffset && liftedIntersectionTopOffset > afterIntersectionTopOffset) {
       intersectionCount++;
     }
   }
 
-  return [intersectionCount, lastIntersection];
+  return intersectionCount;
 }
 
 /**
  * @param {number} direction
- * @param {number} dotId
+ * @param {number} dot
  */
-function isDirectionOutOfBorder(direction, dotId) {
-  const dotIsOnLeftBorder = dotId % (TOTAL_COLUMNS - 1) === 0;
-  const dotIsOnRightBorder = (dotId + 1) % (TOTAL_COLUMNS - 1) === 0;
+function isDirectionOutOfBorder(direction, dot) {
+  const dotIsOnLeftBorder = getOffsets(dot)[0] === 0;
+  const dotIsOnRightBorder = getOffsets(dot + 1)[0] === 0;
 
   return (
     LEFT_DIRECTIONS.includes(direction) && dotIsOnLeftBorder ||
@@ -402,10 +456,14 @@ function isDirectionOutOfBorder(direction, dotId) {
 }
 
 /**
- * @param {Array} array
+ * @param {number} dot
+ * @returns {[number, number]}
  */
-function toComparable(array) {
-  return array
-    .toSorted()
-    .toString();
+function getOffsets(dot) {
+  return [
+    // left
+    dot % (TOTAL_COLUMNS - 1),
+    // top
+    Math.trunc(dot / (TOTAL_COLUMNS - 1))
+  ];
 }
