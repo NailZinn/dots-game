@@ -65,6 +65,18 @@ const leaders = [];
  */
 const occupiedDots = new Set();
 
+const gameHubConnection = new window.signalR.HubConnectionBuilder()
+  .withUrl("/gamehub", {
+    skipNegotiation: true,
+    transport: 1
+  })
+  .withAutomaticReconnect()
+  .build();
+
+gameHubConnection.on("ping", console.log);
+  
+gameHubConnection.start();
+
 drawField();
 drawDots();
 
