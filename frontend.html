@@ -9,6 +9,13 @@
     <script src="frontend.js" defer></script>
   </head>
   <body id="body" class="w-screen h-screen bg-amber-100 p-4">
+    <div class="pb-4 text-center text-2xl font-mono font-bold text-red-500">Dots Game</div>
     <canvas id="field" style="image-rendering: pixelated;" width="780" height="640" class="w-[calc(1.25rem*39)] h-[calc(1.25rem*32)] m-auto"></canvas>
+    <div id="error-message" class="text-center font-mono font-bold text-red-500"></div>
+    <div class="absolute left-0 top-0 p-4 w-64 h-screen">
+      <div class="text-2xl pb-4 font-mono font-bold text-red-500">Players:</div>
+      <div id="players" class="flex flex-col gap-1 pb-4"></div>
+      <div id="start-button" class="pb-4 w-32 h-7 bg-green-500 text-white text-center align-middle rounded-lg cursor-pointer hover:bg-green-700">Start!</div>
+    </div>
   </body>
 </html>

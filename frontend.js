@@ -39,6 +39,19 @@ const DIAGONAL_DIRECTION_TO_AXIS_DIRECTIONS = new Map([
   [BOTTOM_RIGHT, [BOTTOM, RIGHT]]
 ]);
 
+const PLAYERS_METADATA = [
+  { strokeStyle: "blue", fillStyle: "rgb(0 0 255 / 40%)", dotColor: "bg-blue-500", textColor: "text-blue-500" },
+  { strokeStyle: "red", fillStyle: "rgb(255 0 0 / 40%)", dotColor: "bg-red-500", textColor: "text-red-500" },
+  { strokeStyle: "green", fillStyle: "rgb(0 255 0 / 40%)", dotColor: "bg-green-500", textColor: "text-green-500" },
+  { strokeStyle: "yellow", fillStyle: "rgb(255 255 0 / 40%)", dotColor: "bg-yellow-500", textColor: "text-yellow-500" }
+];
+
+const state = {
+  playerId: -1,
+  isTurn: false,
+  score: 0
+};
+
 /**
  * @type {HTMLCanvasElement}
  */
@@ -73,12 +86,91 @@ const gameHubConnection = new window.signalR.HubConnectionBuilder()
   .withAutomaticReconnect()
   .build();
 
-gameHubConnection.on("ping", console.log);
+gameHubConnection.on(
+  "ReceivePlayerId",
+  /**
+   * @param {number} playerId
+   * @param {number} roomSize
+   */
+  (playerId, roomSize) => {
+    console.log("ReceivePlayerId", playerId, roomSize);
+    const players = document.getElementById("players");
+    
+    for (let i = 0; i <= roomSize; i++) {
+      const player = createPlayer(i);
+      players.append(player);
+    }
+    
+    state.playerId = playerId;    
+  }
+);
+
+gameHubConnection.on(
+  "ReceiveNewPlayerId",
+  /**
+   * @param {number} newPlayerId
+   */
+ (newPlayerId) => {
+    console.log("ReceiveNewPlayerId", newPlayerId);
+    const players = document.getElementById("players");
+    const player = createPlayer(newPlayerId);
+    players.append(player);
+  }
+);
+
+gameHubConnection.on(
+  "HandleGameStart",
+  () => {
+    state.isTurn = true;
+  }
+);
+
+gameHubConnection.on(
+  "HandleError",
+  /**
+   * @param {string} message
+   */
+  (message) => {
+    const errorMessage = document.getElementById("error-message");
+    errorMessage.innerText = message;
+  }
+);
   
 gameHubConnection.start();
 
+const startButton = document.getElementById("start-button");
+
+startButton.onclick = () => {
+  gameHubConnection.invoke("StartGame");
+}
+
 drawField();
 drawDots();
+
+/**
+ * @param {number} playerId
+ */
+function createPlayer(playerId) {
+  const player = document.createElement("div");
+
+  const turn = document.createElement("span");
+  turn.id = `turn-${playerId}`;
+  turn.classList.add("hidden", "font-mono", "font-bold", PLAYERS_METADATA[playerId].textColor);
+  turn.innerText = "gt;";
+
+  const playerName = document.createElement("span");
+  playerName.classList.add("pr-4", "font-mono", "font-bold", PLAYERS_METADATA[playerId].textColor);
+  playerName.innerText = `Player ${playerId + 1}`;
+
+  const score = document.createElement("span");
+  score.id = `score-${playerId}`;
+  score.classList.add("font-mono", "font-bold", PLAYERS_METADATA[playerId].textColor);
+  score.innerText = "0";
+
+  player.append(turn, playerName, score);
+
+  return player;
+}
 
 function drawField() {
   canvas.lineWidth = 1;
@@ -129,11 +221,11 @@ function drawDots() {
 function handleDotClick(dotElement) {
   const dot = Number(dotElement.id);
 
-  if (board[dot]) return;
+  if (board[dot] || !state.isTurn) return;
 
   board[dot] = true;
 
-  dotElement.classList.add("rounded-full", "bg-blue-700");
+  dotElement.classList.add("rounded-full", PLAYERS_METADATA[state.playerId].dotColor);
 
   addDotToUnion(dot);
 
@@ -397,9 +489,9 @@ function reorderPolygon(polygon, dot, unionLeader) {
  * @param {CanvasRenderingContext2D} canvas
  */
 function drawPolygons(polygons, canvas) {
-  canvas.strokeStyle = "blue";
+  canvas.strokeStyle = PLAYERS_METADATA[state.playerId].strokeStyle;
   canvas.lineWidth = 2;
-  canvas.fillStyle = "rgb(0 0 255 / 40%)";
+  canvas.fillStyle = PLAYERS_METADATA[state.playerId].fillStyle;
 
   for (let polygon of polygons) {
     const path = new Path2D();
