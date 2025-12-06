@@ -8,14 +8,21 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/9.0.6/signalr.min.js"></script>
     <script src="frontend.js" defer></script>
   </head>
-  <body id="body" class="w-screen h-screen bg-amber-100 p-4">
-    <div class="pb-4 text-center text-2xl font-mono font-bold text-red-500">Dots Game</div>
-    <canvas id="field" style="image-rendering: pixelated;" width="780" height="640" class="w-[calc(1.25rem*39)] h-[calc(1.25rem*32)] m-auto"></canvas>
-    <div id="error-message" class="text-center font-mono font-bold text-red-500"></div>
-    <div class="absolute left-0 top-0 p-4 w-64 h-screen">
-      <div class="text-2xl pb-4 font-mono font-bold text-red-500">Players:</div>
-      <div id="players" class="flex flex-col gap-1 pb-4"></div>
-      <div id="start-button" class="pb-4 w-32 h-7 bg-green-500 text-white text-center align-middle rounded-lg cursor-pointer hover:bg-green-700">Start!</div>
+  <body id="body" class="w-screen h-screen bg-amber-100 flex">
+    <div class="w-64 h-screen p-2">
+      <div class="text-2xl pb-2 font-mono font-bold text-red-500 text-center">Players</div>
+      <div id="players" class="pb-2"></div>
+      <button id="start-button" class="block w-32 h-8 m-auto bg-green-500 text-white rounded-lg hover:bg-green-700">Start!</button>
+    </div>
+    <div class="grow">
+      <div class="py-2 text-center text-2xl font-mono font-bold text-red-500">Dots Game</div>
+      <canvas id="field" style="image-rendering: pixelated;" width="780" height="640" class="w-[calc(1.25rem*39)] h-[calc(1.25rem*32)] m-auto"></canvas>
+    </div>
+    <div class="w-64 h-screen p-2">
+      <div class="text-2xl pb-2 font-mono font-bold text-red-500 text-center">Logs</div>
+      <div id="logs" class="w-56 h-[calc(100%-40px)] overflow-y-scroll">
+        <!-- <div class="font-mono font-bold">text</div> -->
+      </div>
     </div>
   </body>
 </html>
