@@ -1,6 +1,7 @@
 #:sdk Microsoft.NET.Sdk.Web
 #:property PublishAOT=false
 
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.FileProviders;
 
@@ -24,6 +25,8 @@ app.Run("http://0.0.0.0:5000");
 public class GameHub : Hub<IGameHubClient>
 {
     private const int MaxRoomSize = 4;
+
+    private static readonly ConcurrentDictionary<string, int> ConnectionIdToPlayerId = [];
 
     private static bool gameStarted = false;
     private static int roomSize = 0;
@@ -57,22 +60,42 @@ public class GameHub : Hub<IGameHubClient>
             return;
         }
 
+        ConnectionIdToPlayerId.TryAdd(Context.ConnectionId, roomSize);
+
         await Task.WhenAll(
-            Clients.Caller.ReceivePlayerId(roomSize, roomSize),
+            Clients.Caller.ReceivePlayerId(roomSize),
             Clients.Others.ReceiveNewPlayerId(roomSize)
         );
 
         roomSize++;
     }
+
+    public override async Task OnDisconnectedAsync(Exception? exception)
+    {
+        var removed = ConnectionIdToPlayerId.Remove(Context.ConnectionId, out var disconnectedPlayerId);
+
+        if (!removed) return;
+
+        foreach (var kvp in ConnectionIdToPlayerId)
+        {
+            if (kvp.Value > disconnectedPlayerId) ConnectionIdToPlayerId[kvp.Key]--;
+        }
+
+        await Clients.Others.HandleDisconnectedPlayer(disconnectedPlayerId);
+
+        roomSize--;
+    }
 }
 
 public interface IGameHubClient
 {
-    Task ReceivePlayerId(int playerId, int roomSize);
+    Task ReceivePlayerId(int playerId);
 
     Task ReceiveNewPlayerId(int newPlayerId);
 
     Task HandleGameStart();
 
     Task HandleError(string message);
+
+    Task HandleDisconnectedPlayer(int disconnectedPlayerId);
 }

@@ -58,6 +58,12 @@ const state = {
 const field = document.getElementById("field");
 const canvas = field.getContext("2d");
 
+const players = document.getElementById("players");
+
+const startButton = document.getElementById("start-button");
+
+const logs = document.getElementById("logs");
+
 /**
  * @type {boolean[]}
  */
@@ -90,14 +96,12 @@ gameHubConnection.on(
   "ReceivePlayerId",
   /**
    * @param {number} playerId
-   * @param {number} roomSize
    */
-  (playerId, roomSize) => {
-    console.log("ReceivePlayerId", playerId, roomSize);
-    const players = document.getElementById("players");
-    
-    for (let i = 0; i <= roomSize; i++) {
-      const player = createPlayer(i);
+  (playerId) => {
+    console.log("ReceivePlayerId", playerId);
+
+    for (let i = 0; i <= playerId; i++) {
+      const player = createPlayer(i, i === playerId);
       players.append(player);
     }
     
@@ -112,8 +116,8 @@ gameHubConnection.on(
    */
  (newPlayerId) => {
     console.log("ReceiveNewPlayerId", newPlayerId);
-    const players = document.getElementById("players");
-    const player = createPlayer(newPlayerId);
+
+    const player = createPlayer(newPlayerId, false);
     players.append(player);
   }
 );
@@ -131,14 +135,48 @@ gameHubConnection.on(
    * @param {string} message
    */
   (message) => {
-    const errorMessage = document.getElementById("error-message");
-    errorMessage.innerText = message;
+    console.log("HandleError", message);
+
+    const logEntry = document.createElement("div");
+    logEntry.classList.add("font-mono", "font-bold", "text-red-500");
+    logEntry.innerText = message;
+    logs.append(logEntry);
+  }
+);
+
+gameHubConnection.on(
+  "HandleDisconnectedPlayer",
+  /**
+   * @param {number} disconnedPlayerId
+   */
+  (disconnedPlayerId) => {
+    console.log("HandleDisconnectedPlayer", disconnedPlayerId);
+
+    for (let i = disconnedPlayerId + 1; i < players.children.length; i++) {
+      document.getElementById(i.toString()).id = (i - 1).toString();
+
+      const turn = document.getElementById(`turn-${i}`);
+      turn.id = `turn-${i - 1}`;
+      turn.classList.replace(PLAYERS_METADATA[i].textColor, PLAYERS_METADATA[i - 1].textColor);
+      
+      const playerName = document.getElementById(`player-${i}`);
+      playerName.id = `player-${i - 1}`;
+      playerName.classList.replace(PLAYERS_METADATA[i].textColor, PLAYERS_METADATA[i - 1].textColor);
+      playerName.innerText = playerName.innerText.replace((i + 1).toString(), i.toString());
+
+      const score = document.getElementById(`score-${i}`);
+      score.id = `score-${i - 1}`;
+      score.classList.replace(PLAYERS_METADATA[i].textColor, PLAYERS_METADATA[i - 1].textColor);
+    }
+
+    const disconnectedPlayer = document.getElementById(disconnedPlayerId.toString());
+    players.removeChild(disconnectedPlayer);
+
+    if (state.playerId > disconnectedPlayer) state.playerId--;
   }
 );
   
 gameHubConnection.start();
-
-const startButton = document.getElementById("start-button");
 
 startButton.onclick = () => {
   gameHubConnection.invoke("StartGame");
@@ -149,9 +187,11 @@ drawDots();
 
 /**
  * @param {number} playerId
+ * @param {boolean} self
  */
-function createPlayer(playerId) {
+function createPlayer(playerId, self) {
   const player = document.createElement("div");
+  player.id = playerId.toString();
 
   const turn = document.createElement("span");
   turn.id = `turn-${playerId}`;
@@ -159,8 +199,13 @@ function createPlayer(playerId) {
   turn.innerText = "gt;";
 
   const playerName = document.createElement("span");
+  playerName.id = `player-${playerId}`;
   playerName.classList.add("pr-4", "font-mono", "font-bold", PLAYERS_METADATA[playerId].textColor);
   playerName.innerText = `Player ${playerId + 1}`;
+
+  if (self) {
+    playerName.innerText += " (you)";
+  }
 
   const score = document.createElement("span");
   score.id = `score-${playerId}`;
