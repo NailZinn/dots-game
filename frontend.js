@@ -148,9 +148,17 @@ gameHubConnection.on(
   "HandleDisconnectedPlayer",
   /**
    * @param {number} disconnedPlayerId
+   * @param {boolean} gameStarted
    */
-  (disconnedPlayerId) => {
-    console.log("HandleDisconnectedPlayer", disconnedPlayerId);
+  (disconnedPlayerId, gameStarted) => {
+    console.log("HandleDisconnectedPlayer", disconnedPlayerId, gameStarted);
+
+    const disconnectedPlayer = document.getElementById(disconnedPlayerId.toString());
+
+    if (gameStarted) {
+      disconnectedPlayer.innerText += " (disconnected)";
+      return;
+    }
 
     for (let i = disconnedPlayerId + 1; i < players.children.length; i++) {
       document.getElementById(i.toString()).id = (i - 1).toString();
@@ -169,7 +177,6 @@ gameHubConnection.on(
       score.classList.replace(PLAYERS_METADATA[i].textColor, PLAYERS_METADATA[i - 1].textColor);
     }
 
-    const disconnectedPlayer = document.getElementById(disconnedPlayerId.toString());
     players.removeChild(disconnectedPlayer);
 
     if (state.playerId > disconnectedPlayer) state.playerId--;

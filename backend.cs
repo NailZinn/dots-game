@@ -27,6 +27,7 @@ public class GameHub : Hub<IGameHubClient>
     private const int MaxRoomSize = 4;
 
     private static readonly ConcurrentDictionary<string, int> ConnectionIdToPlayerId = [];
+    private static readonly bool[] ConnectedPlayers = [false, false, false, false];
 
     private static bool gameStarted = false;
     private static int roomSize = 0;
@@ -61,6 +62,7 @@ public class GameHub : Hub<IGameHubClient>
         }
 
         ConnectionIdToPlayerId.TryAdd(Context.ConnectionId, roomSize);
+        ConnectedPlayers[roomSize] = true;
 
         await Task.WhenAll(
             Clients.Caller.ReceivePlayerId(roomSize),
@@ -81,9 +83,18 @@ public class GameHub : Hub<IGameHubClient>
             if (kvp.Value > disconnectedPlayerId) ConnectionIdToPlayerId[kvp.Key]--;
         }
 
-        await Clients.Others.HandleDisconnectedPlayer(disconnectedPlayerId);
+        await Clients.Others.HandleDisconnectedPlayer(disconnectedPlayerId, gameStarted);
 
         roomSize--;
+
+        if (!gameStarted)
+        {
+            ConnectedPlayers[roomSize] = false;
+        }
+        else
+        {
+            ConnectedPlayers[disconnectedPlayerId] = false;
+        }
     }
 }
 
@@ -97,5 +108,5 @@ public interface IGameHubClient
 
     Task HandleError(string message);
 
-    Task HandleDisconnectedPlayer(int disconnectedPlayerId);
+    Task HandleDisconnectedPlayer(int disconnectedPlayerId, bool gameStarted);
 }
