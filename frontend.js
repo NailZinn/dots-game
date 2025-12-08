@@ -65,7 +65,7 @@ const startButton = document.getElementById("start-button");
 const logs = document.getElementById("logs");
 
 /**
- * @type {boolean[]}
+ * @type {number[]}
  */
 const board = [];
 
@@ -104,7 +104,7 @@ gameHubConnection.on(
       const player = createPlayer(i, i === playerId);
       players.append(player);
     }
-    
+
     state.playerId = playerId;    
   }
 );
@@ -166,7 +166,7 @@ gameHubConnection.on(
       const turn = document.getElementById(`turn-${i}`);
       turn.id = `turn-${i - 1}`;
       turn.classList.replace(PLAYERS_METADATA[i].textColor, PLAYERS_METADATA[i - 1].textColor);
-      
+
       const playerName = document.getElementById(`player-${i}`);
       playerName.id = `player-${i - 1}`;
       playerName.classList.replace(PLAYERS_METADATA[i].textColor, PLAYERS_METADATA[i - 1].textColor);
@@ -182,7 +182,7 @@ gameHubConnection.on(
     if (state.playerId > disconnectedPlayer) state.playerId--;
   }
 );
-  
+
 gameHubConnection.start();
 
 startButton.onclick = () => {
@@ -226,19 +226,19 @@ function createPlayer(playerId, self) {
 
 function drawField() {
   canvas.lineWidth = 1;
-  
+
   canvas.beginPath();
-  
+
   for (let r = 1; r < TOTAL_ROWS; r++) {
     canvas.moveTo(0, r * CELL_SIZE);
     canvas.lineTo(field.offsetWidth, r * CELL_SIZE);
   }
-  
+
   for (let c = 1; c < TOTAL_COLUMNS; c++) {
     canvas.moveTo(c * CELL_SIZE, 0);
     canvas.lineTo(c * CELL_SIZE, field.offsetHeight);
   }
-  
+
   canvas.stroke();
 }
 
@@ -257,11 +257,11 @@ function drawDots() {
         "absolute", "w-2", "h-2", "cursor-pointer",
         // "bg-white", "rounded-full", "border", "border-gray-900"
       );
-  
-      board[dot] = false;
-  
+
+      board[dot] = -1;
+
       dotElement.onclick = () => handleDotClick(dotElement);
-  
+
       body.append(dotElement);
     }
   }
@@ -273,9 +273,9 @@ function drawDots() {
 function handleDotClick(dotElement) {
   const dot = Number(dotElement.id);
 
-  if (board[dot] || !state.isTurn) return;
+  if (board[dot] !== -1 || !state.isTurn) return;
 
-  board[dot] = true;
+  board[dot] = state.playerId;
 
   dotElement.classList.add("rounded-full", PLAYERS_METADATA[state.playerId].dotColor);
 
@@ -300,18 +300,18 @@ function handleDotClick(dotElement) {
    */
   const unoccupiedDotsWithinExtremePoints = getDotsWithinExtremePoints(
     extremePoints,
-    dot => board[dot] && !occupiedDots.has(dot)
-      // uncomment once dots distinction is implemented
-      // && leaders[dot] !== leader
+    dot => board[dot] !== -1 && board[dot] !== state.playerId && !occupiedDots.has(dot)
   );
 
   if (unoccupiedDotsWithinExtremePoints.length === 0) return;
 
   console.log("unoccupied dots within extreme points", unoccupiedDotsWithinExtremePoints);
 
-  const polygons = detectPolygons(unoccupiedDotsWithinExtremePoints, extremePoints, dot, leader);
-  
+  const [polygons, occupiedDotsCount] = detectPolygons(unoccupiedDotsWithinExtremePoints, extremePoints, dot, leader);
+
   if (polygons.length === 0) return;
+
+  state.score += occupiedDotsCount;
 
   console.log("occupied dots", occupiedDots);
   console.log("polygons", polygons);
@@ -332,7 +332,7 @@ function addDotToUnion(dot) {
 
     const neighbor = dot + direction;
 
-    if (!board[neighbor]) continue;
+    if (board[neighbor] === -1) continue;
 
     const leader = leaders[neighbor];
 
@@ -351,7 +351,7 @@ function addDotToUnion(dot) {
 
       const unionToMergeNeighbor = dot + unionMergeDirection;
 
-      if (!board[unionToMergeNeighbor]) continue;
+      if (board[unionToMergeNeighbor] === -1) continue;
 
       const unionToMergeLeader = leaders[unionToMergeNeighbor];
 
@@ -384,7 +384,7 @@ function getExtremePoints(figure) {
 
   for (let dot of figure) {
     const [leftOffset, topOffset] = getOffsets(dot);
-    
+
     if (extremePoints[0] === undefined || leftOffset < extremePoints[0]) extremePoints[0] = leftOffset;
     if (extremePoints[1] === undefined || leftOffset > extremePoints[1]) extremePoints[1] = leftOffset;
     if (extremePoints[2] === undefined || topOffset < extremePoints[2]) extremePoints[2] = topOffset;
@@ -427,12 +427,15 @@ function getDotsWithinExtremePoints(extremePoints, predicate) {
  * @param {[number, number, number, number]} extremePoints
  * @param {number} dot
  * @param {number} unionLeader
+ * @returns {[number[][], number]}
  */
 function detectPolygons(innerDots, extremePoints, dot, unionLeader) {
   /**
    * @type {number[][]}
    */
   const polygons = [];
+
+  let occupiedDotsCount = 0;
 
   outer:
   for (let startDot of innerDots) {
@@ -441,6 +444,7 @@ function detectPolygons(innerDots, extremePoints, dot, unionLeader) {
 
       if (intersectionCount % 2 == 1) {
         occupiedDots.add(startDot);
+        occupiedDotsCount++;
         continue outer; 
       }
     }
@@ -463,11 +467,7 @@ function detectPolygons(innerDots, extremePoints, dot, unionLeader) {
     while (stack.length > 0) {
       const currentDot = stack.pop();
 
-      if (
-        leaders[currentDot] === unionLeader
-        // probably remove once dots distinction is implemented
-        && currentDot !== startDot
-      ) {
+      if (leaders[currentDot] === unionLeader) {
         polygon.push(currentDot);
         continue;
       }
@@ -500,10 +500,11 @@ function detectPolygons(innerDots, extremePoints, dot, unionLeader) {
     }
 
     occupiedDots.add(startDot);
+    occupiedDotsCount++;
     polygons.push(reorderPolygon(polygon, dot, unionLeader));
   }
 
-  return polygons;
+  return [polygons, occupiedDotsCount];
 }
 
 /**
@@ -550,7 +551,7 @@ function drawPolygons(polygons, canvas) {
 
     const [x, y] = getOffsets(polygon[0]).map(x => x + 1);    
     path.moveTo(x * CELL_SIZE, y * CELL_SIZE);
-    
+
     for (let i = 1; i < polygon.length; i++) {
       const [x, y] = getOffsets(polygon[i]).map(x => x + 1);
       path.lineTo(x * CELL_SIZE, y * CELL_SIZE);
