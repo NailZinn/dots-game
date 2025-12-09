@@ -124,8 +124,50 @@ gameHubConnection.on(
 
 gameHubConnection.on(
   "HandleGameStart",
-  () => {
-    state.isTurn = true;
+  /**
+   * @param {number} playerId
+   */
+  (playerId) => {
+    console.log("HandleGameStart", playerId);
+
+    state.isTurn = state.playerId === playerId;
+    document.getElementById(`turn-${playerId}`).classList.remove("hidden");
+  }
+);
+
+gameHubConnection.on(
+  "HandleMove",
+  /**
+   * @param {number} playerId
+   * @param {number} dot
+   * @param {number[][]} polygons
+   * @param {number[]} currentOccupiedDots 
+   * @param {number} nextTurnPlayerId 
+   */
+  (playerId, dot, polygons, currentOccupiedDots, nextTurnPlayerId) => {
+    console.log("HandleMove", playerId, dot, polygons, currentOccupiedDots, nextTurnPlayerId);
+
+    if (playerId !== state.playerId) {
+      board[dot] = playerId;
+      document.getElementById(dot.toString()).classList.add("rounded-full", PLAYERS_METADATA[playerId].dotColor);
+    }
+
+    const scoreElement = document.getElementById(`score-${playerId}`);
+    const score = parseInt(scoreElement.innerText) + currentOccupiedDots.length;
+    scoreElement.innerText = score.toString();
+
+    if (currentOccupiedDots.length !== 0) {
+      currentOccupiedDots.forEach(x => occupiedDots.add(x));
+    }
+
+    if (polygons.length !== 0) {
+      drawPolygons(polygons, canvas, PLAYERS_METADATA[playerId].strokeStyle, PLAYERS_METADATA[playerId].fillStyle);
+      excludeDotsWithinPolygonsFromGame(polygons);
+    }
+
+    state.isTurn = state.playerId === nextTurnPlayerId;
+    document.getElementById(`turn-${playerId}`).classList.add("hidden");
+    document.getElementById(`turn-${nextTurnPlayerId}`).classList.remove("hidden");
   }
 );
 
@@ -147,28 +189,28 @@ gameHubConnection.on(
 gameHubConnection.on(
   "HandleDisconnectedPlayer",
   /**
-   * @param {number} disconnedPlayerId
+   * @param {number} disconnectedPlayerId
    * @param {boolean} gameStarted
    */
-  (disconnedPlayerId, gameStarted) => {
-    console.log("HandleDisconnectedPlayer", disconnedPlayerId, gameStarted);
-
-    const disconnectedPlayer = document.getElementById(disconnedPlayerId.toString());
+  (disconnectedPlayerId, gameStarted) => {
+    console.log("HandleDisconnectedPlayer", disconnectedPlayerId, gameStarted);
 
     if (gameStarted) {
-      disconnectedPlayer.innerText += " (disconnected)";
+      document.getElementById(`name-${disconnectedPlayerId}`).innerText += " (disconnected)";
       return;
     }
 
-    for (let i = disconnedPlayerId + 1; i < players.children.length; i++) {
-      document.getElementById(i.toString()).id = (i - 1).toString();
+    const disconnectedPlayer = document.getElementById(`player-${disconnectedPlayerId.toString()}`);
+
+    for (let i = disconnectedPlayerId + 1; i < players.children.length; i++) {
+      document.getElementById(`player-${i}`).id = `player-${(i - 1)}`;
 
       const turn = document.getElementById(`turn-${i}`);
       turn.id = `turn-${i - 1}`;
       turn.classList.replace(PLAYERS_METADATA[i].textColor, PLAYERS_METADATA[i - 1].textColor);
 
-      const playerName = document.getElementById(`player-${i}`);
-      playerName.id = `player-${i - 1}`;
+      const playerName = document.getElementById(`name-${i}`);
+      playerName.id = `name-${i - 1}`;
       playerName.classList.replace(PLAYERS_METADATA[i].textColor, PLAYERS_METADATA[i - 1].textColor);
       playerName.innerText = playerName.innerText.replace((i + 1).toString(), i.toString());
 
@@ -186,7 +228,7 @@ gameHubConnection.on(
 gameHubConnection.start();
 
 startButton.onclick = () => {
-  gameHubConnection.invoke("StartGame");
+  gameHubConnection.invoke("StartGame", state.playerId);
 }
 
 drawField();
@@ -198,15 +240,15 @@ drawDots();
  */
 function createPlayer(playerId, self) {
   const player = document.createElement("div");
-  player.id = playerId.toString();
+  player.id = `player-${playerId}`;
 
   const turn = document.createElement("span");
   turn.id = `turn-${playerId}`;
   turn.classList.add("hidden", "font-mono", "font-bold", PLAYERS_METADATA[playerId].textColor);
-  turn.innerText = "gt;";
+  turn.innerText = "> ";
 
   const playerName = document.createElement("span");
-  playerName.id = `player-${playerId}`;
+  playerName.id = `name-${playerId}`;
   playerName.classList.add("pr-4", "font-mono", "font-bold", PLAYERS_METADATA[playerId].textColor);
   playerName.innerText = `Player ${playerId + 1}`;
 
@@ -303,22 +345,11 @@ function handleDotClick(dotElement) {
     dot => board[dot] !== -1 && board[dot] !== state.playerId && !occupiedDots.has(dot)
   );
 
-  if (unoccupiedDotsWithinExtremePoints.length === 0) return;
-
   console.log("unoccupied dots within extreme points", unoccupiedDotsWithinExtremePoints);
 
-  const [polygons, occupiedDotsCount] = detectPolygons(unoccupiedDotsWithinExtremePoints, extremePoints, dot, leader);
+  const [polygons, currentOccupiedDots] = detectPolygons(unoccupiedDotsWithinExtremePoints, extremePoints, dot, leader);
 
-  if (polygons.length === 0) return;
-
-  state.score += occupiedDotsCount;
-
-  console.log("occupied dots", occupiedDots);
-  console.log("polygons", polygons);
-
-  drawPolygons(polygons, canvas);
-
-  excludeDotsWithinPolygonsFromGame(polygons);
+  gameHubConnection.invoke("Move", state.playerId, dot, polygons, currentOccupiedDots);
 }
 
 /**
@@ -332,7 +363,7 @@ function addDotToUnion(dot) {
 
     const neighbor = dot + direction;
 
-    if (board[neighbor] === -1) continue;
+    if (board[neighbor] !== state.playerId) continue;
 
     const leader = leaders[neighbor];
 
@@ -351,7 +382,7 @@ function addDotToUnion(dot) {
 
       const unionToMergeNeighbor = dot + unionMergeDirection;
 
-      if (board[unionToMergeNeighbor] === -1) continue;
+      if (board[unionToMergeNeighbor] !== state.playerId) continue;
 
       const unionToMergeLeader = leaders[unionToMergeNeighbor];
 
@@ -427,7 +458,7 @@ function getDotsWithinExtremePoints(extremePoints, predicate) {
  * @param {[number, number, number, number]} extremePoints
  * @param {number} dot
  * @param {number} unionLeader
- * @returns {[number[][], number]}
+ * @returns {[number[][], number[]]}
  */
 function detectPolygons(innerDots, extremePoints, dot, unionLeader) {
   /**
@@ -435,7 +466,10 @@ function detectPolygons(innerDots, extremePoints, dot, unionLeader) {
    */
   const polygons = [];
 
-  let occupiedDotsCount = 0;
+  /**
+   * @type {number[]}
+   */
+  const currentOccupiedDots = [];
 
   outer:
   for (let startDot of innerDots) {
@@ -444,7 +478,7 @@ function detectPolygons(innerDots, extremePoints, dot, unionLeader) {
 
       if (intersectionCount % 2 == 1) {
         occupiedDots.add(startDot);
-        occupiedDotsCount++;
+        currentOccupiedDots.push(startDot);
         continue outer; 
       }
     }
@@ -467,7 +501,7 @@ function detectPolygons(innerDots, extremePoints, dot, unionLeader) {
     while (stack.length > 0) {
       const currentDot = stack.pop();
 
-      if (leaders[currentDot] === unionLeader) {
+      if (leaders[currentDot] === unionLeader && !occupiedDots.has(currentDot)) {
         polygon.push(currentDot);
         continue;
       }
@@ -500,11 +534,11 @@ function detectPolygons(innerDots, extremePoints, dot, unionLeader) {
     }
 
     occupiedDots.add(startDot);
-    occupiedDotsCount++;
+    currentOccupiedDots.push(startDot);
     polygons.push(reorderPolygon(polygon, dot, unionLeader));
   }
 
-  return [polygons, occupiedDotsCount];
+  return [polygons, currentOccupiedDots];
 }
 
 /**
@@ -540,11 +574,13 @@ function reorderPolygon(polygon, dot, unionLeader) {
 /**
  * @param {number[][]} polygons
  * @param {CanvasRenderingContext2D} canvas
+ * @param {string} strokeStyle
+ * @param {string} fillStyle
  */
-function drawPolygons(polygons, canvas) {
-  canvas.strokeStyle = PLAYERS_METADATA[state.playerId].strokeStyle;
+function drawPolygons(polygons, canvas, strokeStyle, fillStyle) {
+  canvas.strokeStyle = strokeStyle;
   canvas.lineWidth = 2;
-  canvas.fillStyle = PLAYERS_METADATA[state.playerId].fillStyle;
+  canvas.fillStyle = fillStyle;
 
   for (let polygon of polygons) {
     const path = new Path2D();

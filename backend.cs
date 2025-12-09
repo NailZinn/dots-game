@@ -32,7 +32,7 @@ public class GameHub : Hub<IGameHubClient>
     private static bool gameStarted = false;
     private static int roomSize = 0;
 
-    public async Task StartGame()
+    public async Task StartGame(int playerId)
     {
         if (gameStarted) return;
 
@@ -44,7 +44,20 @@ public class GameHub : Hub<IGameHubClient>
 
         gameStarted = true;
 
-        await Clients.Caller.HandleGameStart();
+        await Clients.All.HandleGameStart(playerId);
+    }
+
+    public async Task Move(int playerId, int dot, int[][] polygons, int[] currentOccupiedDots)
+    {
+        var nextTurnPlayerId = playerId;
+
+        do
+        {
+            nextTurnPlayerId = (nextTurnPlayerId + 1) % roomSize;
+        }
+        while (!ConnectedPlayers[nextTurnPlayerId]);
+
+        await Clients.All.HandleMove(playerId, dot, polygons, currentOccupiedDots, nextTurnPlayerId);
     }
 
     public override async Task OnConnectedAsync()
@@ -78,9 +91,12 @@ public class GameHub : Hub<IGameHubClient>
 
         if (!removed) return;
 
-        foreach (var kvp in ConnectionIdToPlayerId)
+        if (!gameStarted)
         {
-            if (kvp.Value > disconnectedPlayerId) ConnectionIdToPlayerId[kvp.Key]--;
+            foreach (var kvp in ConnectionIdToPlayerId)
+            {
+                if (kvp.Value > disconnectedPlayerId) ConnectionIdToPlayerId[kvp.Key]--;
+            }
         }
 
         await Clients.Others.HandleDisconnectedPlayer(disconnectedPlayerId, gameStarted);
@@ -104,7 +120,9 @@ public interface IGameHubClient
 
     Task ReceiveNewPlayerId(int newPlayerId);
 
-    Task HandleGameStart();
+    Task HandleGameStart(int playerId);
+
+    Task HandleMove(int playerId, int dot, int[][] polygons, int[] currentOccupiedDots, int nextTurnPlayerId);
 
     Task HandleError(string message);
 
