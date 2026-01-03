@@ -1,6 +1,16 @@
 ## TODO:
 
-- [x] adjacent polygon can be not only horizontal
-- [x] cycle detection takes a lot of time as the size of a union grows
-- [x] forbid creating polygon that intersects with existing ones
-- [ ] https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/isPointInPath - alternative to ray cast
+- [x] [Bug] adjacent polygon can be not only horizontal
+- [x] [Optimization] cycle detection takes a lot of time as the size of a union grows
+- [x] [Bug] forbid creating polygon that intersects with existing ones
+- [ ] [Refactoring] https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/isPointInPath - alternative to ray cast
+- [ ] [Bug] 2 dots on a distance of more than 1 cell can be connected in a polygon
+- [ ] [Bug] polygon wasn't detected
+- [ ] [Bug] polygon was detected twice
+- [ ] [Feature] timer
+- [ ] [Feature] increase maximum room size from 4 to 8
+- [ ] [Feature] multiple rooms
+- [ ] [Feature] allow joining started games
+- [ ] [Feature] highlight recently placed dot
+- [ ] [Feature] allow user input to fill player's name
+- [ ] [Refactoring] improve logging
