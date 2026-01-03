@@ -499,9 +499,16 @@ function detectPolygons(innerDots, extremePoints, dot, unionLeader) {
     const visited = new Set([startDot]);
 
     while (stack.length > 0) {
+      /**
+       * @type {number}
+       */
       const currentDot = stack.pop();
 
-      if (leaders[currentDot] === unionLeader && !occupiedDots.has(currentDot)) {
+      if (
+        leaders[currentDot] === unionLeader &&
+        !occupiedDots.has(currentDot) &&
+        unions[leaders[currentDot]][currentDot].length >= 2
+      ) {
         polygon.push(currentDot);
         continue;
       }
@@ -545,30 +552,21 @@ function detectPolygons(innerDots, extremePoints, dot, unionLeader) {
  * @param {number[]} polygon
  * @param {number} dot
  * @param {number} unionLeader
- * @example
- * unions[leader] =
- * [
- *   [0] = [1, 2, 3, 5],
- *   [1] = [0, 4, 6],
- *   [4] = [1, 2, 7],
- *   [2] = [0, 4, 8]
- * ]
- * polygon = [4, 1, 2, 0], dot = 0
- * polygon = [0, 1, 2, 4]
- * polygon = [0, 1, 2, 4]
- * polygon = [0, 1, 4, 2]
  */
 function reorderPolygon(polygon, dot, unionLeader) {
-  let pointer = dot;
-  let replaceIndex = polygon.indexOf(pointer);
+  /**
+   * @type {number[]}
+   */
+  const reorderedPolygon = [];
 
-  for (let i = 0; i < polygon.length - 1; i++) {
-    [polygon[i], polygon[replaceIndex]] = [pointer, polygon[i]];
-    pointer = unions[unionLeader][pointer].find(x => polygon.includes(x) && polygon.indexOf(x) > i);
-    replaceIndex = polygon.indexOf(pointer);
+  let pointer = dot;
+
+  while (pointer) {
+    reorderedPolygon.push(pointer);
+    pointer = unions[unionLeader][pointer].find(x => polygon.includes(x) && !reorderedPolygon.includes(x));
   }
 
-  return polygon;
+  return reorderedPolygon;
 }
 
 /**
