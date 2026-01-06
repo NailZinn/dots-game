@@ -10,7 +10,9 @@
 - [ ] [Feature] timer
 - [ ] [Feature] increase maximum room size from 4 to 8
 - [ ] [Feature] multiple rooms
+- [ ] [Feature] thread-safe SignalR hub
 - [ ] [Feature] allow joining started games
 - [ ] [Feature] highlight recently placed dot
 - [ ] [Feature] allow user input to fill player's name
 - [ ] [Refactoring] improve logging
+- [ ] [Optimization] handling own dots inside a polygon can introduce tens of thousands of additional iterations over polygon's dots when polygon has size of a classic field and a lot of own dots are inside it

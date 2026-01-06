@@ -542,7 +542,7 @@ function detectPolygons(innerDots, extremePoints, dot, unionLeader) {
 
     occupiedDots.add(startDot);
     currentOccupiedDots.push(startDot);
-    polygons.push(reorderPolygon(polygon, dot, unionLeader));
+    polygons.push(normalizePolygon(polygon, dot, unionLeader));
   }
 
   return [polygons, currentOccupiedDots];
@@ -553,20 +553,54 @@ function detectPolygons(innerDots, extremePoints, dot, unionLeader) {
  * @param {number} dot
  * @param {number} unionLeader
  */
-function reorderPolygon(polygon, dot, unionLeader) {
+function normalizePolygon(polygon, dot, unionLeader) {
+  /**
+   * @type {number[][]}
+   */
+  const polygonVariations = [];
+
+  /**
+   * @type {number[][]}
+   */
+  const stack = [[dot]];
+
+  while (stack.length > 0) {
+    /**
+     * @type {number[]}
+     */
+    const currentPath = stack.pop();
+    const currentDot = currentPath[currentPath.length - 1];
+
+    const nextDots = unions[unionLeader][currentDot].filter(x => polygon.includes(x) && !currentPath.includes(x));
+
+    if (
+      nextDots.length === 0 &&
+      // first and last dots in the path are actually neighbors
+      unions[unionLeader][currentPath[0]].includes(currentDot)
+    ) {
+      polygonVariations.push(currentPath);
+      continue;
+    }
+
+    nextDots.forEach(x => stack.push(currentPath.concat(x)));
+  }
+
+  console.log("valid polygon variations", polygonVariations);
+
   /**
    * @type {number[]}
    */
-  const reorderedPolygon = [];
+  let normalizedPolygon = [];
 
-  let pointer = dot;
-
-  while (pointer) {
-    reorderedPolygon.push(pointer);
-    pointer = unions[unionLeader][pointer].find(x => polygon.includes(x) && !reorderedPolygon.includes(x));
+  for (let polygonVariation of polygonVariations) {
+    if (polygonVariation.length > normalizedPolygon.length) {
+      normalizedPolygon = polygonVariation;
+    }
   }
 
-  return reorderedPolygon;
+  console.log("normalized polygon", normalizedPolygon);
+
+  return normalizedPolygon;
 }
 
 /**
