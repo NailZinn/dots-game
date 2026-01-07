@@ -32,6 +32,9 @@ const DIRECTION_TO_UNION_MERGE_DIRECTIONS = new Map([
   [BOTTOM_RIGHT, [TOP_RIGHT, TOP, TOP_LEFT, LEFT, BOTTOM_LEFT]]
 ]);
 
+/**
+ * @type {Map<number, [number, number]>}
+ */
 const DIAGONAL_DIRECTION_TO_AXIS_DIRECTIONS = new Map([
   [TOP_LEFT, [TOP, LEFT]],
   [TOP_RIGHT, [TOP, RIGHT]],
@@ -142,31 +145,64 @@ gameHubConnection.on(
    * @param {number} dot
    * @param {number[][]} polygons
    * @param {number[]} currentOccupiedDots 
-   * @param {number} nextTurnPlayerId 
    */
-  (playerId, dot, polygons, currentOccupiedDots, nextTurnPlayerId) => {
-    console.log("HandleMove", playerId, dot, polygons, currentOccupiedDots, nextTurnPlayerId);
+  (playerId, dot, polygons, currentOccupiedDots) => {
+    console.log("HandleMove", playerId, dot, polygons, currentOccupiedDots);
 
     if (playerId !== state.playerId) {
       board[dot] = playerId;
       document.getElementById(dot.toString()).classList.add("rounded-full", PLAYERS_METADATA[playerId].dotColor);
     }
 
-    const scoreElement = document.getElementById(`score-${playerId}`);
-    const score = parseInt(scoreElement.innerText) + currentOccupiedDots.length;
-    scoreElement.innerText = score.toString();
-
-    if (currentOccupiedDots.length !== 0) {
-      currentOccupiedDots.forEach(x => occupiedDots.add(x));
-    }
+    /**
+     * @type {number[]}
+     */
+    let trapPolygon = [];
 
     if (polygons.length !== 0) {
+      const scoreElement = document.getElementById(`score-${playerId}`);
+      const score = parseInt(scoreElement.innerText) + currentOccupiedDots.length;
+      scoreElement.innerText = score.toString();
+
+      currentOccupiedDots.forEach(x => occupiedDots.add(x));
+
       drawPolygons(polygons, canvas, PLAYERS_METADATA[playerId].strokeStyle, PLAYERS_METADATA[playerId].fillStyle);
       excludeDotsWithinPolygonsFromGame(polygons);
     }
+    // if no polygons created by current move check whether dot was placed inside of an empty polygon - a so called trap-polygon
+    else if (playerId !== state.playerId) {
+      trapPolygon = detectTrapPolygon(dot);
+    }
+
+    gameHubConnection.invoke("SendTrapPolygon", playerId, trapPolygon, dot, state.playerId);
+  }
+);
+
+gameHubConnection.on(
+  "HandleTrapPolygon",
+  /**
+   * @param {number} currentTurnPlayerId
+   * @param {number[]} trapPolygon
+   * @param {number} trappedDot
+   * @param {number} trapPolygonOwnerId
+   * @param {number} nextTurnPlayerId
+   */
+  (currentTurnPlayerId, trapPolygon, trappedDot, trapPolygonOwnerId, nextTurnPlayerId) => {
+    console.log("HandleTrapPolygon", currentTurnPlayerId, trapPolygon, trappedDot, trapPolygonOwnerId, nextTurnPlayerId);
+
+    if (trapPolygon.length !== 0) {
+      const scoreElement = document.getElementById(`score-${trapPolygonOwnerId}`);
+      const score = parseInt(scoreElement.innerText) + 1;
+      scoreElement.innerText = score.toString();
+
+      occupiedDots.add(trappedDot);
+
+      drawPolygons([trapPolygon], canvas, PLAYERS_METADATA[trapPolygonOwnerId].strokeStyle, PLAYERS_METADATA[trapPolygonOwnerId].fillStyle);
+      excludeDotsWithinPolygonsFromGame([trapPolygon]);
+    }
 
     state.isTurn = state.playerId === nextTurnPlayerId;
-    document.getElementById(`turn-${playerId}`).classList.add("hidden");
+    document.getElementById(`turn-${currentTurnPlayerId}`).classList.add("hidden");
     document.getElementById(`turn-${nextTurnPlayerId}`).classList.remove("hidden");
   }
 );
@@ -476,84 +512,166 @@ function detectPolygons(innerDots, extremePoints, dot, unionLeader) {
     for (let polygon of polygons) {
       const intersectionCount = raycast(startDot, polygon, extremePoints[1]);
 
-      if (intersectionCount % 2 == 1) {
-        occupiedDots.add(startDot);
+      if (intersectionCount % 2 === 1) {
         currentOccupiedDots.push(startDot);
-        continue outer; 
-      }
-    }
-
-    /**
-     * @type {number[]}
-     */
-    const polygon = [];
-
-    /**
-     * @type {number[]}
-     */
-    const stack = [startDot];
-
-    /**
-     * @type {Set<number>}
-     */
-    const visited = new Set([startDot]);
-
-    while (stack.length > 0) {
-      /**
-       * @type {number}
-       */
-      const currentDot = stack.pop();
-
-      if (
-        leaders[currentDot] === unionLeader &&
-        !occupiedDots.has(currentDot) &&
-        unions[leaders[currentDot]][currentDot].length >= 2
-      ) {
-        polygon.push(currentDot);
-        continue;
-      }
-
-      const [leftOffset, topOffset] = getOffsets(currentDot);
-
-      if (
-        leftOffset === extremePoints[0] || leftOffset === extremePoints[1] ||
-        topOffset === extremePoints[2] || topOffset === extremePoints[3]
-      ) {
         continue outer;
       }
-
-      for (let direction of AXIS_DIRECTIONS) {
-        if (!visited.has(currentDot + direction)) {
-          stack.push(currentDot + direction);
-          visited.add(currentDot + direction);
-        }
-      }
-
-      for (let direction of DIAGONAL_DIRECTIONS) {
-        if (
-          DIAGONAL_DIRECTION_TO_AXIS_DIRECTIONS.get(direction).some(x => leaders[currentDot + x] !== unionLeader) &&
-          !visited.has(currentDot + direction)
-        ) {
-          stack.push(currentDot + direction);
-          visited.add(currentDot + direction);
-        }
-      }
     }
 
-    occupiedDots.add(startDot);
+    const polygon = detectPolygon(startDot, extremePoints, dot, unionLeader);
+
+    if (polygon.length === 0) continue outer;
+
     currentOccupiedDots.push(startDot);
-    polygons.push(normalizePolygon(polygon, dot, unionLeader));
+    polygons.push(polygon);
   }
 
   return [polygons, currentOccupiedDots];
 }
 
 /**
- * @param {number[]} polygon
+ * @param {number} startDot
+ * @param {[number, number, number, number]} extremePoints
  * @param {number} dot
  * @param {number} unionLeader
  */
-function normalizePolygon(polygon, dot, unionLeader) {
+function detectPolygon(startDot, extremePoints, dot, unionLeader) {
+  /**
+   * @type {number[]}
+   */
+  const polygon = [];
+
+  /**
+   * @type {number[]}
+   */
+  const stack = [startDot];
+
+  /**
+   * @type {Set<number>}
+   */
+  const visited = new Set([startDot]);
+
+  while (stack.length > 0) {
+    /**
+     * @type {number}
+     */
+    const currentDot = stack.pop();
+
+    if (
+      leaders[currentDot] === unionLeader &&
+      !occupiedDots.has(currentDot) &&
+      unions[leaders[currentDot]][currentDot].length >= 2
+    ) {
+      polygon.push(currentDot);
+      continue;
+    }
+
+    const [leftOffset, topOffset] = getOffsets(currentDot);
+
+    if (
+      leftOffset === extremePoints[0] || leftOffset === extremePoints[1] ||
+      topOffset === extremePoints[2] || topOffset === extremePoints[3]
+    ) return [];
+
+    for (let direction of AXIS_DIRECTIONS) {
+      if (!visited.has(currentDot + direction)) {
+        stack.push(currentDot + direction);
+        visited.add(currentDot + direction);
+      }
+    }
+
+    for (let direction of DIAGONAL_DIRECTIONS) {
+      if (
+        DIAGONAL_DIRECTION_TO_AXIS_DIRECTIONS.get(direction).some(x => leaders[currentDot + x] !== unionLeader) &&
+        !visited.has(currentDot + direction)
+      ) {
+        stack.push(currentDot + direction);
+        visited.add(currentDot + direction);
+      }
+    }
+  }
+
+  return normalizePolygon(polygon, dot, unionLeader);
+}
+
+/**
+ * @param {number} startDot
+ */
+function detectTrapPolygon(startDot) {
+  /**
+   * @type {number[]}
+   */
+  const polygon = [];
+
+  /**
+   * @type {number[]}
+   */
+  const stack = [startDot];
+
+  /**
+   * @type {Set<number>}
+   */
+  const visited = new Set([startDot]);
+
+  while (stack.length > 0) {
+    /**
+     * @type {number}
+     */
+    const currentDot = stack.pop();
+
+    if (
+      board[currentDot] === state.playerId &&
+      !occupiedDots.has(currentDot)
+    ) {
+      polygon.push(currentDot);
+      continue;
+    }
+
+    const [leftOffset, topOffset] = getOffsets(currentDot);
+
+    if (
+      leftOffset === 0 || leftOffset === TOTAL_COLUMNS - 2 || topOffset === 0 || topOffset === TOTAL_ROWS - 2 ||
+      currentDot !== startDot && board[currentDot] !== -1 && !occupiedDots.has(currentDot) && board[currentDot] !== state.playerId
+    ) return [];
+
+    for (let direction of AXIS_DIRECTIONS) {
+      if (!visited.has(currentDot + direction)) {
+        stack.push(currentDot + direction);
+        visited.add(currentDot + direction);
+      }
+    }
+
+    for (let direction of DIAGONAL_DIRECTIONS) {
+      /**
+       * @type {[number, number]}
+       */
+      const [vertical, horizontal] = DIAGONAL_DIRECTION_TO_AXIS_DIRECTIONS.get(direction);
+      if (
+        (
+          board[currentDot + vertical] === -1 ||
+          board[currentDot + horizontal] === -1 ||
+          board[currentDot + vertical] !== board[currentDot + horizontal]
+        ) &&
+        !visited.has(currentDot + direction)
+      ) {
+        stack.push(currentDot + direction);
+        visited.add(currentDot + direction);
+      }
+    }
+  }
+
+  // assume that top-left dot of a raw polygon will definitely be part of the normalized polygon
+  const polygonStartDot = Math.min(...polygon);
+
+  return normalizePolygon(polygon, polygonStartDot, leaders[polygonStartDot]);
+}
+
+/**
+ * @param {number[]} polygon
+ * @param {number} polygonStartDot
+ * @param {number} unionLeader
+ */
+function normalizePolygon(polygon, polygonStartDot, unionLeader) {
   /**
    * @type {number[][]}
    */
@@ -562,7 +680,7 @@ function normalizePolygon(polygon, dot, unionLeader) {
   /**
    * @type {number[][]}
    */
-  const stack = [[dot]];
+  const stack = [[polygonStartDot]];
 
   while (stack.length > 0) {
     /**

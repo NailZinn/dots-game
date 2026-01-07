@@ -32,6 +32,11 @@ public class GameHub : Hub<IGameHubClient>
     private static bool gameStarted = false;
     private static int roomSize = 0;
 
+    private static bool[] moveCompletions = [];
+    private static int[] trapPolygon = [];
+    private static int trappedDot = -1;
+    private static int trapPolygonOwnerId = -1;
+
     public async Task StartGame(int playerId)
     {
         if (gameStarted) return;
@@ -43,13 +48,33 @@ public class GameHub : Hub<IGameHubClient>
         }
 
         gameStarted = true;
+        moveCompletions = Enumerable
+            .Range(0, roomSize)
+            .Select(_ => false)
+            .ToArray();
 
         await Clients.All.HandleGameStart(playerId);
     }
 
     public async Task Move(int playerId, int dot, int[][] polygons, int[] currentOccupiedDots)
     {
-        var nextTurnPlayerId = playerId;
+        await Clients.All.HandleMove(playerId, dot, polygons, currentOccupiedDots);
+    }
+
+    public async Task SendTrapPolygon(int currentTurnPlayerId, int[] trapPolygon, int trappedDot, int trapPolygonOwnerId)
+    {
+        moveCompletions[trapPolygonOwnerId] = true;
+
+        if (trapPolygon.Length != 0)
+        {
+            GameHub.trapPolygon = trapPolygon;
+            GameHub.trappedDot = trappedDot;
+            GameHub.trapPolygonOwnerId = trapPolygonOwnerId;
+        }
+
+        if (!moveCompletions.All(x => x)) return;
+
+        var nextTurnPlayerId = currentTurnPlayerId;
 
         do
         {
@@ -57,7 +82,22 @@ public class GameHub : Hub<IGameHubClient>
         }
         while (!ConnectedPlayers[nextTurnPlayerId]);
 
-        await Clients.All.HandleMove(playerId, dot, polygons, currentOccupiedDots, nextTurnPlayerId);
+        await Clients.All.HandleTrapPolygon(
+            currentTurnPlayerId,
+            GameHub.trapPolygon,
+            GameHub.trappedDot,
+            GameHub.trapPolygonOwnerId,
+            nextTurnPlayerId
+        );
+
+        for (var i = 0; i < moveCompletions.Length; i++)
+        {
+            moveCompletions[i] = false;
+        }
+
+        GameHub.trapPolygon = [];
+        GameHub.trappedDot = -1;
+        GameHub.trapPolygonOwnerId = -1;
     }
 
     public override async Task OnConnectedAsync()
@@ -122,7 +162,9 @@ public interface IGameHubClient
 
     Task HandleGameStart(int playerId);
 
-    Task HandleMove(int playerId, int dot, int[][] polygons, int[] currentOccupiedDots, int nextTurnPlayerId);
+    Task HandleMove(int playerId, int dot, int[][] polygons, int[] currentOccupiedDots);
+
+    Task HandleTrapPolygon(int currentTurnPlayerId, int[] trapPolygon, int trappedDot, int trapPolygonOwnerId, int nextTurnPlayerId);
 
     Task HandleError(string message);
 
