@@ -87,181 +87,166 @@ const leaders = [];
  */
 const occupiedDots = new Set();
 
-const gameHubConnection = new window.signalR.HubConnectionBuilder()
-  .withUrl("/gamehub", {
-    skipNegotiation: true,
-    transport: 1
-  })
-  .withAutomaticReconnect()
-  .build();
+const ws = new WebSocket("/ws");
 
-gameHubConnection.on(
-  "ReceivePlayerId",
+ws.onopen = () => ws.send("test");
+
+// const gameHubConnection = new window.signalR.HubConnectionBuilder()
+  // .withUrl("/gamehub", {
+  //   skipNegotiation: true,
+  //   transport: 1
+  // })
+  // .withAutomaticReconnect()
+  // .build();
+
+ws.onmessage = (
   /**
-   * @param {number} playerId
+   * @param {MessageEvent} event
    */
-  (playerId) => {
-    console.log("ReceivePlayerId", playerId);
+  (event) => {
+    switch (event.data.type) {
+      case "ReceivePlayerId": {
+        const playerId = event.data.playerId;
 
-    for (let i = 0; i <= playerId; i++) {
-      const player = createPlayer(i, i === playerId);
-      players.append(player);
+        console.log("ReceivePlayerId", playerId);
+
+        for (let i = 0; i <= playerId; i++) {
+          const player = createPlayer(i, i === playerId);
+          players.append(player);
+        }
+
+        state.playerId = playerId;
+
+        break;
+      }
+      case "ReceiveNewPlayerId": {
+        const newPlayerId = event.data.newPlayerId;
+
+        console.log("ReceiveNewPlayerId", newPlayerId);
+
+        const player = createPlayer(newPlayerId, false);
+        players.append(player);
+
+        break;
+      }
+      case "HandleGameStart": {
+        const playerId = event.data.playerId;
+
+        console.log("HandleGameStart", playerId);
+
+        state.isTurn = state.playerId === playerId;
+        document.getElementById(`turn-${playerId}`).classList.remove("hidden");
+
+        break;
+      }
+      case "HandleMove": {
+        const { playerId, dot, polygons, currentOccupiedDots } = event.data;
+
+        console.log("HandleMove", playerId, dot, polygons, currentOccupiedDots);
+
+        if (playerId !== state.playerId) {
+          board[dot] = playerId;
+          document.getElementById(dot.toString()).classList.add("rounded-full", PLAYERS_METADATA[playerId].dotColor);
+        }
+
+        /**
+         * @type {number[]}
+         */
+        let trapPolygon = [];
+
+        if (polygons.length !== 0) {
+          const scoreElement = document.getElementById(`score-${playerId}`);
+          const score = parseInt(scoreElement.innerText) + currentOccupiedDots.length;
+          scoreElement.innerText = score.toString();
+
+          currentOccupiedDots.forEach(x => occupiedDots.add(x));
+
+          drawPolygons(polygons, canvas, PLAYERS_METADATA[playerId].strokeStyle, PLAYERS_METADATA[playerId].fillStyle);
+          excludeDotsWithinPolygonsFromGame(polygons);
+        }
+        // if no polygons created by current move check whether dot was placed inside of an empty polygon - a so called trap-polygon
+        else if (playerId !== state.playerId) {
+          trapPolygon = detectTrapPolygon(dot);
+        }
+
+        gameHubConnection.invoke("SendTrapPolygon", playerId, trapPolygon, dot, state.playerId);
+
+        break;
+      }
+      case "HandleTrapPolygon": {
+        const { currentTurnPlayerId, trapPolygon, trappedDot, trapPolygonOwnerId, nextTurnPlayerId } = event.data;
+
+        console.log("HandleTrapPolygon", currentTurnPlayerId, trapPolygon, trappedDot, trapPolygonOwnerId, nextTurnPlayerId);
+
+        if (trapPolygon.length !== 0) {
+          const scoreElement = document.getElementById(`score-${trapPolygonOwnerId}`);
+          const score = parseInt(scoreElement.innerText) + 1;
+          scoreElement.innerText = score.toString();
+
+          occupiedDots.add(trappedDot);
+
+          drawPolygons([trapPolygon], canvas, PLAYERS_METADATA[trapPolygonOwnerId].strokeStyle, PLAYERS_METADATA[trapPolygonOwnerId].fillStyle);
+          excludeDotsWithinPolygonsFromGame([trapPolygon]);
+        }
+
+        state.isTurn = state.playerId === nextTurnPlayerId;
+        document.getElementById(`turn-${currentTurnPlayerId}`).classList.add("hidden");
+        document.getElementById(`turn-${nextTurnPlayerId}`).classList.remove("hidden");
+
+        break;
+      }
+      case "HandleError": {
+        const message = event.data.message;
+
+        console.log("HandleError", message);
+
+        const logEntry = document.createElement("div");
+        logEntry.classList.add("font-mono", "font-bold", "text-red-500");
+        logEntry.innerText = message;
+        logs.append(logEntry);
+
+        break;
+      }
+      case "HandleDisconnectedPlayer": {
+        const { disconnectedPlayerId, gameStarted } = event.data;
+
+        console.log("HandleDisconnectedPlayer", disconnectedPlayerId, gameStarted);
+
+        if (gameStarted) {
+          document.getElementById(`name-${disconnectedPlayerId}`).innerText += " (disconnected)";
+          return;
+        }
+
+        const disconnectedPlayer = document.getElementById(`player-${disconnectedPlayerId.toString()}`);
+
+        for (let i = disconnectedPlayerId + 1; i < players.children.length; i++) {
+          document.getElementById(`player-${i}`).id = `player-${(i - 1)}`;
+
+          const turn = document.getElementById(`turn-${i}`);
+          turn.id = `turn-${i - 1}`;
+          turn.classList.replace(PLAYERS_METADATA[i].textColor, PLAYERS_METADATA[i - 1].textColor);
+
+          const playerName = document.getElementById(`name-${i}`);
+          playerName.id = `name-${i - 1}`;
+          playerName.classList.replace(PLAYERS_METADATA[i].textColor, PLAYERS_METADATA[i - 1].textColor);
+          playerName.innerText = playerName.innerText.replace((i + 1).toString(), i.toString());
+
+          const score = document.getElementById(`score-${i}`);
+          score.id = `score-${i - 1}`;
+          score.classList.replace(PLAYERS_METADATA[i].textColor, PLAYERS_METADATA[i - 1].textColor);
+        }
+
+        players.removeChild(disconnectedPlayer);
+
+        if (state.playerId > disconnectedPlayer) state.playerId--;
+
+        break;
+      }
     }
-
-    state.playerId = playerId;    
   }
 );
 
-gameHubConnection.on(
-  "ReceiveNewPlayerId",
-  /**
-   * @param {number} newPlayerId
-   */
- (newPlayerId) => {
-    console.log("ReceiveNewPlayerId", newPlayerId);
-
-    const player = createPlayer(newPlayerId, false);
-    players.append(player);
-  }
-);
-
-gameHubConnection.on(
-  "HandleGameStart",
-  /**
-   * @param {number} playerId
-   */
-  (playerId) => {
-    console.log("HandleGameStart", playerId);
-
-    state.isTurn = state.playerId === playerId;
-    document.getElementById(`turn-${playerId}`).classList.remove("hidden");
-  }
-);
-
-gameHubConnection.on(
-  "HandleMove",
-  /**
-   * @param {number} playerId
-   * @param {number} dot
-   * @param {number[][]} polygons
-   * @param {number[]} currentOccupiedDots 
-   */
-  (playerId, dot, polygons, currentOccupiedDots) => {
-    console.log("HandleMove", playerId, dot, polygons, currentOccupiedDots);
-
-    if (playerId !== state.playerId) {
-      board[dot] = playerId;
-      document.getElementById(dot.toString()).classList.add("rounded-full", PLAYERS_METADATA[playerId].dotColor);
-    }
-
-    /**
-     * @type {number[]}
-     */
-    let trapPolygon = [];
-
-    if (polygons.length !== 0) {
-      const scoreElement = document.getElementById(`score-${playerId}`);
-      const score = parseInt(scoreElement.innerText) + currentOccupiedDots.length;
-      scoreElement.innerText = score.toString();
-
-      currentOccupiedDots.forEach(x => occupiedDots.add(x));
-
-      drawPolygons(polygons, canvas, PLAYERS_METADATA[playerId].strokeStyle, PLAYERS_METADATA[playerId].fillStyle);
-      excludeDotsWithinPolygonsFromGame(polygons);
-    }
-    // if no polygons created by current move check whether dot was placed inside of an empty polygon - a so called trap-polygon
-    else if (playerId !== state.playerId) {
-      trapPolygon = detectTrapPolygon(dot);
-    }
-
-    gameHubConnection.invoke("SendTrapPolygon", playerId, trapPolygon, dot, state.playerId);
-  }
-);
-
-gameHubConnection.on(
-  "HandleTrapPolygon",
-  /**
-   * @param {number} currentTurnPlayerId
-   * @param {number[]} trapPolygon
-   * @param {number} trappedDot
-   * @param {number} trapPolygonOwnerId
-   * @param {number} nextTurnPlayerId
-   */
-  (currentTurnPlayerId, trapPolygon, trappedDot, trapPolygonOwnerId, nextTurnPlayerId) => {
-    console.log("HandleTrapPolygon", currentTurnPlayerId, trapPolygon, trappedDot, trapPolygonOwnerId, nextTurnPlayerId);
-
-    if (trapPolygon.length !== 0) {
-      const scoreElement = document.getElementById(`score-${trapPolygonOwnerId}`);
-      const score = parseInt(scoreElement.innerText) + 1;
-      scoreElement.innerText = score.toString();
-
-      occupiedDots.add(trappedDot);
-
-      drawPolygons([trapPolygon], canvas, PLAYERS_METADATA[trapPolygonOwnerId].strokeStyle, PLAYERS_METADATA[trapPolygonOwnerId].fillStyle);
-      excludeDotsWithinPolygonsFromGame([trapPolygon]);
-    }
-
-    state.isTurn = state.playerId === nextTurnPlayerId;
-    document.getElementById(`turn-${currentTurnPlayerId}`).classList.add("hidden");
-    document.getElementById(`turn-${nextTurnPlayerId}`).classList.remove("hidden");
-  }
-);
-
-gameHubConnection.on(
-  "HandleError",
-  /**
-   * @param {string} message
-   */
-  (message) => {
-    console.log("HandleError", message);
-
-    const logEntry = document.createElement("div");
-    logEntry.classList.add("font-mono", "font-bold", "text-red-500");
-    logEntry.innerText = message;
-    logs.append(logEntry);
-  }
-);
-
-gameHubConnection.on(
-  "HandleDisconnectedPlayer",
-  /**
-   * @param {number} disconnectedPlayerId
-   * @param {boolean} gameStarted
-   */
-  (disconnectedPlayerId, gameStarted) => {
-    console.log("HandleDisconnectedPlayer", disconnectedPlayerId, gameStarted);
-
-    if (gameStarted) {
-      document.getElementById(`name-${disconnectedPlayerId}`).innerText += " (disconnected)";
-      return;
-    }
-
-    const disconnectedPlayer = document.getElementById(`player-${disconnectedPlayerId.toString()}`);
-
-    for (let i = disconnectedPlayerId + 1; i < players.children.length; i++) {
-      document.getElementById(`player-${i}`).id = `player-${(i - 1)}`;
-
-      const turn = document.getElementById(`turn-${i}`);
-      turn.id = `turn-${i - 1}`;
-      turn.classList.replace(PLAYERS_METADATA[i].textColor, PLAYERS_METADATA[i - 1].textColor);
-
-      const playerName = document.getElementById(`name-${i}`);
-      playerName.id = `name-${i - 1}`;
-      playerName.classList.replace(PLAYERS_METADATA[i].textColor, PLAYERS_METADATA[i - 1].textColor);
-      playerName.innerText = playerName.innerText.replace((i + 1).toString(), i.toString());
-
-      const score = document.getElementById(`score-${i}`);
-      score.id = `score-${i - 1}`;
-      score.classList.replace(PLAYERS_METADATA[i].textColor, PLAYERS_METADATA[i - 1].textColor);
-    }
-
-    players.removeChild(disconnectedPlayer);
-
-    if (state.playerId > disconnectedPlayer) state.playerId--;
-  }
-);
-
-gameHubConnection.start();
+// gameHubConnection.start();
 
 startButton.onclick = () => {
   gameHubConnection.invoke("StartGame", state.playerId);
