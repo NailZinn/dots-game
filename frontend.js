@@ -2,46 +2,6 @@ const TOTAL_ROWS = 32;
 const TOTAL_COLUMNS = 39;
 const CELL_SIZE = 20;
 
-const LEFT = -1;
-const RIGHT = 1;
-const TOP = -(TOTAL_COLUMNS - 1);
-const BOTTOM = (TOTAL_COLUMNS - 1);
-const TOP_LEFT = LEFT + TOP;
-const TOP_RIGHT = RIGHT + TOP;
-const BOTTOM_LEFT = LEFT + BOTTOM;
-const BOTTOM_RIGHT = RIGHT + BOTTOM;
-
-const DIRECTIONS = [LEFT, RIGHT, TOP, BOTTOM, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT];
-
-const LEFT_DIRECTIONS = [TOP_LEFT, LEFT, BOTTOM_LEFT];
-
-const RIGHT_DIRECTIONS = [TOP_RIGHT, RIGHT, BOTTOM_RIGHT];
-
-const AXIS_DIRECTIONS = [LEFT, RIGHT, TOP, BOTTOM];
-
-const DIAGONAL_DIRECTIONS = [TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT];
-
-const DIRECTION_TO_UNION_MERGE_DIRECTIONS = new Map([
-  [LEFT, [TOP_RIGHT, RIGHT, BOTTOM_RIGHT]],
-  [RIGHT, [TOP_LEFT, LEFT, BOTTOM_LEFT]],
-  [TOP, [BOTTOM_LEFT, BOTTOM, BOTTOM_RIGHT]],
-  [BOTTOM, [TOP_LEFT, TOP, TOP_RIGHT]],
-  [TOP_LEFT, [TOP_RIGHT, RIGHT, BOTTOM_RIGHT, BOTTOM, BOTTOM_LEFT]],
-  [TOP_RIGHT, [TOP_LEFT, LEFT, BOTTOM_LEFT, BOTTOM, BOTTOM_RIGHT]],
-  [BOTTOM_LEFT, [TOP_LEFT, TOP, TOP_RIGHT, RIGHT, BOTTOM_RIGHT]],
-  [BOTTOM_RIGHT, [TOP_RIGHT, TOP, TOP_LEFT, LEFT, BOTTOM_LEFT]]
-]);
-
-/**
- * @type {Map<number, [number, number]>}
- */
-const DIAGONAL_DIRECTION_TO_AXIS_DIRECTIONS = new Map([
-  [TOP_LEFT, [TOP, LEFT]],
-  [TOP_RIGHT, [TOP, RIGHT]],
-  [BOTTOM_LEFT, [BOTTOM, LEFT]],
-  [BOTTOM_RIGHT, [BOTTOM, RIGHT]]
-]);
-
 const PLAYERS_METADATA = [
   { strokeStyle: "blue", fillStyle: "rgb(0 0 255 / 40%)", dotColor: "bg-blue-500", textColor: "text-blue-500" },
   { strokeStyle: "red", fillStyle: "rgb(255 0 0 / 40%)", dotColor: "bg-red-500", textColor: "text-red-500" },
@@ -73,32 +33,9 @@ const logs = document.getElementById("logs");
  */
 const board = [];
 
-/**
- * @type {number[][][]}
- */
-const unions = [];
-
-/**
- * @type {number[]}
- */
-const leaders = [];
-
-/**
- * @type {Set<number>}
- */
-const occupiedDots = new Set();
-
 const ws = new WebSocket("/ws");
 
 ws.onopen = () => ws.send(JSON.stringify({ type: "connect" }));
-
-// const gameHubConnection = new window.signalR.HubConnectionBuilder()
-  // .withUrl("/gamehub", {
-  //   skipNegotiation: true,
-  //   transport: 1
-  // })
-  // .withAutomaticReconnect()
-  // .build();
 
 /**
  * @param {MessageEvent} event
@@ -110,19 +47,19 @@ ws.onmessage = (event) => {
    *  | { type: "ReceivePlayerId", connectionId: string, playerId: number }
    *  | { type: "ReceiveNewPlayerId", newPlayerId: number }
    *  | { type: "HandleGameStart", playerId: number }
-   *  | { type: "HandleMove", playerId: number, dot: number, polygons: number[][], currentOccupiedDots: number[] }
+   *  | { type: "HandleMove", playerId: number, dot: number, polygons: number[][], currentOccupiedDots: number[], dotsExcludedFromGame: number[], trapPolygon: number[], trapPolygonOwnerId: number, nextTurnPlayerId: number }
    *  | { type: "HandleTrapPolygon", currentTurnPlayerId: number, trapPolygon: number[], trappedDot: number, trapPolygonOwnerId: number, nextTurnPlayerId: number }
    *  | { type: "HandleDisconnectedPlayer", disconnectedPlayerId: number, gameStarted: boolean }
    * )}
    */
   const message = JSON.parse(event.data);
 
+  console.log(message);
+
   switch (message.type) {
     case "ReceivePlayerId": {
       const playerId = message.playerId;
       const connectionId = message.connectionId;
-
-      console.log("ReceivePlayerId", connectionId, playerId);
 
       for (let i = 0; i <= playerId; i++) {
         const player = createPlayer(i, i === playerId);
@@ -137,8 +74,6 @@ ws.onmessage = (event) => {
     case "ReceiveNewPlayerId": {
       const newPlayerId = message.newPlayerId;
 
-      console.log("ReceiveNewPlayerId", newPlayerId);
-
       const player = createPlayer(newPlayerId, false);
       players.append(player);
 
@@ -147,66 +82,35 @@ ws.onmessage = (event) => {
     case "HandleGameStart": {
       const playerId = message.playerId;
 
-      console.log("HandleGameStart", playerId);
-
       state.isTurn = state.playerId === playerId;
       document.getElementById(`turn-${playerId}`).classList.remove("hidden");
 
       break;
     }
     case "HandleMove": {
-      const { playerId, dot, polygons, currentOccupiedDots } = message;
+      const { playerId, dot, polygons, currentOccupiedDots, dotsExcludedFromGame, trapPolygon, trapPolygonOwnerId, nextTurnPlayerId } = message;
 
-      console.log("HandleMove", playerId, dot, polygons, currentOccupiedDots);
-
-      if (playerId !== state.playerId) {
-        board[dot] = playerId;
-        document.getElementById(dot.toString()).classList.add("rounded-full", PLAYERS_METADATA[playerId].dotColor);
-      }
-
-      /**
-       * @type {number[]}
-       */
-      let trapPolygon = [];
-
+      board[dot] = playerId;
+      document.getElementById(dot.toString()).classList.add("rounded-full", PLAYERS_METADATA[playerId].dotColor);
+      
       if (polygons.length !== 0) {
         const scoreElement = document.getElementById(`score-${playerId}`);
         const score = parseInt(scoreElement.innerText) + currentOccupiedDots.length;
         scoreElement.innerText = score.toString();
 
-        currentOccupiedDots.forEach(x => occupiedDots.add(x));
-
         drawPolygons(polygons, canvas, PLAYERS_METADATA[playerId].strokeStyle, PLAYERS_METADATA[playerId].fillStyle);
-        excludeDotsWithinPolygonsFromGame(polygons);
-      }
-      // if no polygons created by current move check whether dot was placed inside of an empty polygon - a so called trap-polygon
-      else if (playerId !== state.playerId) {
-        trapPolygon = detectTrapPolygon(dot);
-      }
-
-      // gameHubConnection.invoke("SendTrapPolygon", playerId, trapPolygon, dot, state.playerId);
-      ws.send(JSON.stringify({ type: "sendTrapPolygon", currentTurnPlayerId: playerId, trapPolygon: trapPolygon, trappedDot: dot, trapPolygonOwnerId: state.playerId }));
-
-      break;
-    }
-    case "HandleTrapPolygon": {
-      const { currentTurnPlayerId, trapPolygon, trappedDot, trapPolygonOwnerId, nextTurnPlayerId } = message;
-
-      console.log("HandleTrapPolygon", currentTurnPlayerId, trapPolygon, trappedDot, trapPolygonOwnerId, nextTurnPlayerId);
-
-      if (trapPolygon.length !== 0) {
+      } else if (trapPolygon.length !== 0) {
         const scoreElement = document.getElementById(`score-${trapPolygonOwnerId}`);
         const score = parseInt(scoreElement.innerText) + 1;
         scoreElement.innerText = score.toString();
 
-        occupiedDots.add(trappedDot);
-
         drawPolygons([trapPolygon], canvas, PLAYERS_METADATA[trapPolygonOwnerId].strokeStyle, PLAYERS_METADATA[trapPolygonOwnerId].fillStyle);
-        excludeDotsWithinPolygonsFromGame([trapPolygon]);
       }
 
+      excludeDotsFromGame(dotsExcludedFromGame);
+
       state.isTurn = state.playerId === nextTurnPlayerId;
-      document.getElementById(`turn-${currentTurnPlayerId}`).classList.add("hidden");
+      document.getElementById(`turn-${playerId}`).classList.add("hidden");
       document.getElementById(`turn-${nextTurnPlayerId}`).classList.remove("hidden");
 
       break;
@@ -261,10 +165,7 @@ ws.onmessage = (event) => {
   }
 }
 
-// gameHubConnection.start();
-
 startButton.onclick = () => {
-  // gameHubConnection.invoke("StartGame", state.playerId);
   ws.send(JSON.stringify({ type: "start", playerId: state.playerId }));
 }
 
@@ -354,373 +255,9 @@ function handleDotClick(dotElement) {
 
   if (board[dot] !== -1 || !state.isTurn) return;
 
-  board[dot] = state.playerId;
+  ws.send(JSON.stringify({ type: "move", dot: dot, connectionId: state.connectionId, playerId: state.playerId }));
 
-  dotElement.classList.add("rounded-full", PLAYERS_METADATA[state.playerId].dotColor);
-
-  addDotToUnion(dot);
-
-  console.log("unions", unions);
-  console.log("leaders", leaders);
-
-  const leader = leaders[dot];
-
-  const extremePoints = getExtremePoints(
-    unions[leader]
-      .map(/**@returns {[number[], number]} */ (x, i) => [x, i])
-      .filter(x => x)
-      .map(([_, i]) => i)
-  );
-
-  console.log("extreme points", extremePoints);
-
-  /**
-   * @type {number[]}
-   */
-  const unoccupiedDotsWithinExtremePoints = getDotsWithinExtremePoints(
-    extremePoints,
-    dot => board[dot] !== -1 && board[dot] !== state.playerId && !occupiedDots.has(dot)
-  );
-
-  console.log("unoccupied dots within extreme points", unoccupiedDotsWithinExtremePoints);
-
-  const [polygons, currentOccupiedDots] = detectPolygons(unoccupiedDotsWithinExtremePoints, extremePoints, dot, leader);
-
-  // gameHubConnection.invoke("Move", state.playerId, dot, polygons, currentOccupiedDots);
-  ws.send(JSON.stringify({ type: "move", playerId: state.playerId, dot: dot, polygons: polygons, currentOccupiedDots: currentOccupiedDots }));
-}
-
-/**
- * @param {number} dot
- */
-function addDotToUnion(dot) {
-  let dotIsInUnion = false;
-
-  for (let direction of DIRECTIONS) {
-    if (isDirectionOutOfBorder(direction, dot)) continue;
-
-    const neighbor = dot + direction;
-
-    if (board[neighbor] !== state.playerId) continue;
-
-    const leader = leaders[neighbor];
-
-    unions[leader][neighbor].push(dot);
-    unions[leader][dot] ??= [];
-    unions[leader][dot].push(neighbor);
-
-    if (dotIsInUnion) continue;
-
-    leaders[dot] = leader;
-
-    dotIsInUnion = true;
-
-    for (let unionMergeDirection of DIRECTION_TO_UNION_MERGE_DIRECTIONS.get(direction)) {
-      if (isDirectionOutOfBorder(unionMergeDirection, dot)) continue;
-
-      const unionToMergeNeighbor = dot + unionMergeDirection;
-
-      if (board[unionToMergeNeighbor] !== state.playerId) continue;
-
-      const unionToMergeLeader = leaders[unionToMergeNeighbor];
-
-      if (unionToMergeLeader === leader) continue;
-
-      unions[unionToMergeLeader].forEach((unionItem, unionItemId) => {
-        unions[leader][unionItemId] = unionItem;
-        leaders[unionItemId] = leader;
-      });
-
-      delete unions[unionToMergeLeader];
-    }
-  }
-
-  if (!dotIsInUnion) {
-    unions[dot] = [];
-    unions[dot][dot] = [];
-    leaders[dot] = dot;
-  }
-}
-
-/**
- * @param {number[]} figure
- */
-function getExtremePoints(figure) {
-  /**
-   * @type {[number, number, number, number]}
-   */
-  const extremePoints = [];
-
-  for (let dot of figure) {
-    const [leftOffset, topOffset] = getOffsets(dot);
-
-    if (extremePoints[0] === undefined || leftOffset < extremePoints[0]) extremePoints[0] = leftOffset;
-    if (extremePoints[1] === undefined || leftOffset > extremePoints[1]) extremePoints[1] = leftOffset;
-    if (extremePoints[2] === undefined || topOffset < extremePoints[2]) extremePoints[2] = topOffset;
-    if (extremePoints[3] === undefined || topOffset > extremePoints[3]) extremePoints[3] = topOffset;
-  }
-
-  return extremePoints;
-}
-
-/**
- * @param {[number, number, number, number]} extremePoints
- * @param {(dot: number) => boolean} predicate
- */
-function getDotsWithinExtremePoints(extremePoints, predicate) {
-  /**
-   * @type {number[]}
-   */
-  const dotsWithinExtremePoints = [];
-
-  for (let dot = 0; dot < board.length; dot++) {
-    if (!predicate(dot)) continue;
-
-    const [leftOffset, topOffset] = getOffsets(dot);
-
-    if (topOffset > extremePoints[3]) break;
-
-    if (
-      extremePoints[0] <= leftOffset && leftOffset <= extremePoints[1] &&
-      extremePoints[2] <= topOffset && topOffset <= extremePoints[3]
-    ) {
-      dotsWithinExtremePoints.push(dot);
-    }
-  }
-
-  return dotsWithinExtremePoints
-}
-
-/**
- * @param {number[]} innerDots
- * @param {[number, number, number, number]} extremePoints
- * @param {number} dot
- * @param {number} unionLeader
- * @returns {[number[][], number[]]}
- */
-function detectPolygons(innerDots, extremePoints, dot, unionLeader) {
-  /**
-   * @type {number[][]}
-   */
-  const polygons = [];
-
-  /**
-   * @type {number[]}
-   */
-  const currentOccupiedDots = [];
-
-  outer:
-  for (let startDot of innerDots) {
-    for (let polygon of polygons) {
-      const intersectionCount = raycast(startDot, polygon, extremePoints[1]);
-
-      if (intersectionCount % 2 === 1) {
-        currentOccupiedDots.push(startDot);
-        continue outer;
-      }
-    }
-
-    const polygon = detectPolygon(startDot, extremePoints, dot, unionLeader);
-
-    if (polygon.length === 0) continue outer;
-
-    currentOccupiedDots.push(startDot);
-    polygons.push(polygon);
-  }
-
-  return [polygons, currentOccupiedDots];
-}
-
-/**
- * @param {number} startDot
- * @param {[number, number, number, number]} extremePoints
- * @param {number} dot
- * @param {number} unionLeader
- */
-function detectPolygon(startDot, extremePoints, dot, unionLeader) {
-  /**
-   * @type {number[]}
-   */
-  const polygon = [];
-
-  /**
-   * @type {number[]}
-   */
-  const stack = [startDot];
-
-  /**
-   * @type {Set<number>}
-   */
-  const visited = new Set([startDot]);
-
-  while (stack.length > 0) {
-    /**
-     * @type {number}
-     */
-    const currentDot = stack.pop();
-
-    if (
-      leaders[currentDot] === unionLeader &&
-      !occupiedDots.has(currentDot) &&
-      unions[leaders[currentDot]][currentDot].length >= 2
-    ) {
-      polygon.push(currentDot);
-      continue;
-    }
-
-    const [leftOffset, topOffset] = getOffsets(currentDot);
-
-    if (
-      leftOffset === extremePoints[0] || leftOffset === extremePoints[1] ||
-      topOffset === extremePoints[2] || topOffset === extremePoints[3]
-    ) return [];
-
-    for (let direction of AXIS_DIRECTIONS) {
-      if (!visited.has(currentDot + direction)) {
-        stack.push(currentDot + direction);
-        visited.add(currentDot + direction);
-      }
-    }
-
-    for (let direction of DIAGONAL_DIRECTIONS) {
-      if (
-        DIAGONAL_DIRECTION_TO_AXIS_DIRECTIONS.get(direction).some(x => leaders[currentDot + x] !== unionLeader) &&
-        !visited.has(currentDot + direction)
-      ) {
-        stack.push(currentDot + direction);
-        visited.add(currentDot + direction);
-      }
-    }
-  }
-
-  return normalizePolygon(polygon, dot, unionLeader);
-}
-
-/**
- * @param {number} startDot
- */
-function detectTrapPolygon(startDot) {
-  /**
-   * @type {number[]}
-   */
-  const polygon = [];
-
-  /**
-   * @type {number[]}
-   */
-  const stack = [startDot];
-
-  /**
-   * @type {Set<number>}
-   */
-  const visited = new Set([startDot]);
-
-  while (stack.length > 0) {
-    /**
-     * @type {number}
-     */
-    const currentDot = stack.pop();
-
-    if (
-      board[currentDot] === state.playerId &&
-      !occupiedDots.has(currentDot)
-    ) {
-      polygon.push(currentDot);
-      continue;
-    }
-
-    const [leftOffset, topOffset] = getOffsets(currentDot);
-
-    if (
-      leftOffset === 0 || leftOffset === TOTAL_COLUMNS - 2 || topOffset === 0 || topOffset === TOTAL_ROWS - 2 ||
-      currentDot !== startDot && board[currentDot] !== -1 && !occupiedDots.has(currentDot) && board[currentDot] !== state.playerId
-    ) return [];
-
-    for (let direction of AXIS_DIRECTIONS) {
-      if (!visited.has(currentDot + direction)) {
-        stack.push(currentDot + direction);
-        visited.add(currentDot + direction);
-      }
-    }
-
-    for (let direction of DIAGONAL_DIRECTIONS) {
-      /**
-       * @type {[number, number]}
-       */
-      const [vertical, horizontal] = DIAGONAL_DIRECTION_TO_AXIS_DIRECTIONS.get(direction);
-      if (
-        (
-          board[currentDot + vertical] === -1 ||
-          board[currentDot + horizontal] === -1 ||
-          board[currentDot + vertical] !== board[currentDot + horizontal]
-        ) &&
-        !visited.has(currentDot + direction)
-      ) {
-        stack.push(currentDot + direction);
-        visited.add(currentDot + direction);
-      }
-    }
-  }
-
-  // assume that top-left dot of a raw polygon will definitely be part of the normalized polygon
-  const polygonStartDot = Math.min(...polygon);
-
-  return normalizePolygon(polygon, polygonStartDot, leaders[polygonStartDot]);
-}
-
-/**
- * @param {number[]} polygon
- * @param {number} polygonStartDot
- * @param {number} unionLeader
- */
-function normalizePolygon(polygon, polygonStartDot, unionLeader) {
-  /**
-   * @type {number[][]}
-   */
-  const polygonVariations = [];
-
-  /**
-   * @type {number[][]}
-   */
-  const stack = [[polygonStartDot]];
-
-  while (stack.length > 0) {
-    /**
-     * @type {number[]}
-     */
-    const currentPath = stack.pop();
-    const currentDot = currentPath[currentPath.length - 1];
-
-    const nextDots = unions[unionLeader][currentDot].filter(x => polygon.includes(x) && !currentPath.includes(x));
-
-    if (
-      nextDots.length === 0 &&
-      // first and last dots in the path are actually neighbors
-      unions[unionLeader][currentPath[0]].includes(currentDot)
-    ) {
-      polygonVariations.push(currentPath);
-      continue;
-    }
-
-    nextDots.forEach(x => stack.push(currentPath.concat(x)));
-  }
-
-  console.log("valid polygon variations", polygonVariations);
-
-  /**
-   * @type {number[]}
-   */
-  let normalizedPolygon = [];
-
-  for (let polygonVariation of polygonVariations) {
-    if (polygonVariation.length > normalizedPolygon.length) {
-      normalizedPolygon = polygonVariation;
-    }
-  }
-
-  console.log("normalized polygon", normalizedPolygon);
-
-  return normalizedPolygon;
+  return;
 }
 
 /**
@@ -734,7 +271,7 @@ function drawPolygons(polygons, canvas, strokeStyle, fillStyle) {
   canvas.lineWidth = 2;
   canvas.fillStyle = fillStyle;
 
-  for (let polygon of polygons) {
+  for (const polygon of polygons) {
     const path = new Path2D();
 
     const [x, y] = getOffsets(polygon[0]).map(x => x + 1);    
@@ -753,74 +290,14 @@ function drawPolygons(polygons, canvas, strokeStyle, fillStyle) {
 }
 
 /**
- * @param {number[][]} polygons
+ * @param {number[]} dotsToExclude
  */
-function excludeDotsWithinPolygonsFromGame(polygons) {
-  for (let polygon of polygons) {
-    const extremePoints = getExtremePoints(polygon);
-    const dotsToExclude = getDotsWithinExtremePoints(
-      extremePoints,
-      dot => !polygon.includes(dot) && raycast(dot, polygon, extremePoints[1]) % 2 === 1
-    );
-
-    for (let dotToExclude of dotsToExclude) {
-      const dotElement = document.getElementById(dotToExclude.toString());
-      dotElement.classList.replace("cursor-pointer", "cursor-not-allowed");
-      dotElement.onclick = undefined;
-    }
+function excludeDotsFromGame(dotsToExclude) {
+  for (const dotToExclude of dotsToExclude) {
+    const dotElement = document.getElementById(dotToExclude.toString());
+    dotElement.classList.replace("cursor-pointer", "cursor-not-allowed");
+    dotElement.onclick = undefined;
   }
-}
-
-/**
- * @param {number} dot
- * @param {number[]} figure
- * @param {number} rightBorder
- */
-function raycast(dot, figure, rightBorder) {
-  let intersectionCount = 0;
-  let ray = dot;
-
-  while (ray % (TOTAL_COLUMNS - 1) < rightBorder) {
-    ray += RIGHT;
-    const intersectionIndex = figure.indexOf(ray);
-
-    if (intersectionIndex === -1) continue;
-
-    intersectionCount++;
-
-    const intersection = figure[intersectionIndex];
-    const liftedIntersectionTopOffset = getOffsets(intersection)[1] - 0.1;
-    const beforeIntersection = figure[(intersectionIndex - 1 + figure.length) % figure.length];
-    const beforeIntersectionTopOffset = getOffsets(beforeIntersection)[1];
-    const afterIntersection = figure[(intersectionIndex + 1) % figure.length];
-    const afterIntersectionTopOffset = getOffsets(afterIntersection)[1];
-
-    // raised ray is above both adjacent points => no intersection
-    if (beforeIntersectionTopOffset > liftedIntersectionTopOffset && liftedIntersectionTopOffset < afterIntersectionTopOffset) {
-      intersectionCount--;
-    }
-
-    // raised ray is below both adjacent points => 2 intersections
-    if (beforeIntersectionTopOffset < liftedIntersectionTopOffset && liftedIntersectionTopOffset > afterIntersectionTopOffset) {
-      intersectionCount++;
-    }
-  }
-
-  return intersectionCount;
-}
-
-/**
- * @param {number} direction
- * @param {number} dot
- */
-function isDirectionOutOfBorder(direction, dot) {
-  const dotIsOnLeftBorder = getOffsets(dot)[0] === 0;
-  const dotIsOnRightBorder = getOffsets(dot + 1)[0] === 0;
-
-  return (
-    LEFT_DIRECTIONS.includes(direction) && dotIsOnLeftBorder ||
-    RIGHT_DIRECTIONS.includes(direction) && dotIsOnRightBorder
-  );
 }
 
 /**
