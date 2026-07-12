@@ -54,7 +54,11 @@ const unions: number[][][] = [];
 
 const leaders: number[] = [];
 
+const polygons: number[][][] = [];
+
 const occupiedDots = new Set<number>();
+
+const excludedDots: number[] = [];
 
 const players = new Map<string, Player>();
 
@@ -71,6 +75,8 @@ Deno.serve({ hostname: "0.0.0.0", port: 5000 }, async (req: Request) => {
   }
   // deno-lint-ignore no-empty
   catch (_) {}
+
+  if (path === "/export") return exportGame();
   
   if (path !== "/ws") {
     return new Response("Not Found", { status: 404 });
@@ -111,6 +117,31 @@ Deno.serve({ hostname: "0.0.0.0", port: 5000 }, async (req: Request) => {
 });
 
 // HANDLERS
+
+function exportGame() {
+  const exportPayload: ExportPayload = {
+    board: board,
+    playerCount: roomSize,
+    unions: sparseArrayToDenseMap(unions, union => sparseArrayToDenseMap(union, x => x)),
+    leaders: sparseArrayToDenseMap(leaders, x => x),
+    occupiedDots: occupiedDots.values().toArray(),
+    polygons: polygons,
+    excludedDots: excludedDots
+  };
+
+  const now = Temporal.Now.plainDateTimeISO();
+  const fileName = `dots-game-export-${now.toString().slice(0, 19).replaceAll(":", "-")}.json`;
+
+  const encoder = new TextEncoder();
+  const fileContent = encoder.encode(JSON.stringify(exportPayload));
+
+  const headers = new Headers({
+    "Content-Type": "application/json",
+    "X-File-Name": fileName
+  })
+
+  return new Response(new Blob([fileContent]), { headers });
+}
 
 function connect(ws: WebSocket) {
   if (roomSize === MAX_ROOM_SIZE) {
@@ -191,14 +222,16 @@ function move(message: MoveMessage) {
     dot => board[dot] !== -1 && board[dot] !== message.playerId && !occupiedDots.has(dot)
   );
 
-  const [polygons, currentOccupiedDots] = detectPolygons(unoccupiedDotsWithinExtremePoints, extremePoints, message.dot, leader);
+  const [currentPolygons, currentOccupiedDots] = detectPolygons(unoccupiedDotsWithinExtremePoints, extremePoints, message.dot, leader);
 
-  let dotsExcludedFromGame: number[] = [];
+  let currentExcludedDots: number[] = [];
   
   let trapPolygon: number[] = [];
   let trapPolygonOwnerId = -1;
 
-  if (polygons.length === 0) {
+  polygons[message.playerId] ??= [];
+
+  if (currentPolygons.length === 0) {
     for (const [_, { id }] of players) {
       if (id === message.playerId) continue;
 
@@ -206,15 +239,19 @@ function move(message: MoveMessage) {
       if (trapPolygon.length !== 0) {
         trapPolygonOwnerId = id;
         occupiedDots.add(message.dot);
-        dotsExcludedFromGame = getDotsExcludedFromGame([trapPolygon]);
+        currentExcludedDots = getExcludedDots([trapPolygon]);
+        polygons[message.playerId].push(trapPolygon);
         break;
       }
     }
   }
   else {
     currentOccupiedDots.forEach(x => occupiedDots.add(x));
-    dotsExcludedFromGame = getDotsExcludedFromGame(polygons);
+    currentExcludedDots = getExcludedDots(currentPolygons);
+    polygons[message.playerId].push(...currentPolygons);
   }
+
+  excludedDots.push(...currentExcludedDots);
 
   let nextTurnPlayerId = message.playerId;
 
@@ -226,9 +263,9 @@ function move(message: MoveMessage) {
     type: "HandleMove",
     playerId: message.playerId,
     dot: message.dot,
-    polygons: polygons,
+    polygons: currentPolygons,
     currentOccupiedDots: currentOccupiedDots,
-    dotsExcludedFromGame: dotsExcludedFromGame,
+    dotsExcludedFromGame: currentExcludedDots,
     trapPolygon: trapPolygon,
     trapPolygonOwnerId: trapPolygonOwnerId,
     nextTurnPlayerId: nextTurnPlayerId
@@ -549,16 +586,16 @@ function normalizePolygon(
   return normalizedPolygon;
 }
 
-function getDotsExcludedFromGame(polygons: number[][]) {
-  const dotsExcludedFromGame: number[] = [];
+function getExcludedDots(polygons: number[][]) {
+  const excludedDots: number[] = [];
   for (const polygon of polygons) {
     const extremePoints = getExtremePoints(polygon);
-    dotsExcludedFromGame.push(...getDotsWithinExtremePoints(
+    excludedDots.push(...getDotsWithinExtremePoints(
       extremePoints,
       dot => !polygon.includes(dot) && raycast(dot, polygon, extremePoints[1]) % 2 === 1 && board[dot] === -1
     ));
   }
-  return dotsExcludedFromGame;
+  return excludedDots;
 }
 
 function raycast(dot: number, figure: number[], rightBorder: number) {
@@ -613,6 +650,18 @@ function getOffsets(dot: number) {
   ] as const;
 }
 
+function sparseArrayToDenseMap<From, To>(
+  array: From[],
+  valueTransformer: (from: From) => To
+): Record<string, To> {
+  return Object.fromEntries<To>(
+    array
+      .map((x, i) => [x, i] as const)
+      .filter(x => x)
+      .map(([x, i]) => [i, valueTransformer(x)])
+  );
+}
+
 // FUNCTIONS
 
 // TYPES
@@ -624,6 +673,16 @@ type Player = {
 };
 
 type ExtremePoints = [number, number, number, number];
+
+type ExportPayload = {
+  board: number[],
+  playerCount: number,
+  unions: Record<string, Record<string, number[]>>,
+  leaders: Record<string, number>,
+  occupiedDots: number[],
+  polygons: number[][][],
+  excludedDots: number[]
+};
 
 type Message = 
   | ConnectMessage

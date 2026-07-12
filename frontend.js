@@ -25,6 +25,7 @@ const canvas = field.getContext("2d");
 const players = document.getElementById("players");
 
 const startButton = document.getElementById("start-button");
+const exportButton = document.getElementById("export-button");
 
 const logs = document.getElementById("logs");
 
@@ -84,6 +85,9 @@ ws.onmessage = (event) => {
 
       state.isTurn = state.playerId === playerId;
       document.getElementById(`turn-${playerId}`).classList.remove("hidden");
+
+      exportButton.classList.replace("text-red-500/50", "text-red-500");
+      exportButton.classList.remove("cursor-not-allowed");
 
       break;
     }
@@ -167,6 +171,23 @@ ws.onmessage = (event) => {
 
 startButton.onclick = () => {
   ws.send(JSON.stringify({ type: "start", playerId: state.playerId }));
+}
+
+exportButton.onclick = async () => {
+  const response = await fetch("/export");
+  const blob = await response.blob();
+  const fileName = response.headers.get("X-File-Name");
+
+  console.log(blob);
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 drawField();

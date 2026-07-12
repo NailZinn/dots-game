@@ -18,7 +18,10 @@
       <div class="text-2xl pb-2 font-mono font-bold text-red-500 text-center">Dots Game</div>
       <canvas id="field" style="image-rendering: pixelated;" width="780" height="640" class="w-[calc(1.25rem*39)] h-[calc(1.25rem*32)] m-auto"></canvas>
     </div>
-    <div class="w-64 h-screen p-2">
+    <div class="w-64 p-2">
+      <button id="export-button" class="w-24 text-2xl font-mono font-bold text-center text-red-500/50 cursor-not-allowed">Export</button>
+    </div>
+    <div class="w-64 h-screen p-2 hidden">
       <div class="text-2xl pb-2 font-mono font-bold text-red-500 text-center">Logs</div>
       <div id="logs" class="w-56 h-[calc(100%-40px)] overflow-y-scroll"></div>
     </div>
