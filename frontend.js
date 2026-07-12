@@ -26,6 +26,7 @@ const players = document.getElementById("players");
 
 const startButton = document.getElementById("start-button");
 const exportButton = document.getElementById("export-button");
+const importButton = document.getElementById("import-button");
 
 const logs = document.getElementById("logs");
 
@@ -45,11 +46,11 @@ ws.onmessage = (event) => {
   /**
    * @type {(
    *  | { type: "error", text: string }
+   *  | { type: "HandleImport", board: number[], excludedDots: number[], playersPolygons: { polygons: number[][], occupiedDots: number[] }[], currentTurnPlayerId: number }
    *  | { type: "ReceivePlayerId", connectionId: string, playerId: number }
    *  | { type: "ReceiveNewPlayerId", newPlayerId: number }
    *  | { type: "HandleGameStart", playerId: number }
    *  | { type: "HandleMove", playerId: number, dot: number, polygons: number[][], currentOccupiedDots: number[], dotsExcludedFromGame: number[], trapPolygon: number[], trapPolygonOwnerId: number, nextTurnPlayerId: number }
-   *  | { type: "HandleTrapPolygon", currentTurnPlayerId: number, trapPolygon: number[], trappedDot: number, trapPolygonOwnerId: number, nextTurnPlayerId: number }
    *  | { type: "HandleDisconnectedPlayer", disconnectedPlayerId: number, gameStarted: boolean }
    * )}
    */
@@ -58,6 +59,33 @@ ws.onmessage = (event) => {
   console.log(message);
 
   switch (message.type) {
+    case "HandleImport": {
+      const { board: importedBoard, excludedDots, playersPolygons, currentTurnPlayerId } = message;
+
+      importedBoard.forEach((x, i) => board[i] = x);
+
+      for (let i = 0; i < board.length; i++) {
+        if (board[i] === -1) continue;
+        document.getElementById(i.toString()).classList.add("rounded-full", PLAYERS_METADATA[board[i]].dotColor);
+      }
+
+      for (let i = 0; i < playersPolygons.length; i++) {
+        const scoreElement = document.getElementById(`score-${i}`);
+        const score = parseInt(scoreElement.innerText) + playersPolygons[i].occupiedDots.length;
+        scoreElement.innerText = score.toString();
+
+        if (playersPolygons[i].polygons.length !== 0) {
+          drawPolygons(playersPolygons[i].polygons, canvas, PLAYERS_METADATA[i].strokeStyle, PLAYERS_METADATA[i].fillStyle);
+        }
+      }
+
+      excludeDotsFromGame(excludedDots);
+
+      state.isTurn = state.playerId === currentTurnPlayerId;
+      document.getElementById(`turn-${currentTurnPlayerId}`).classList.remove("hidden");
+
+      break;
+    }
     case "ReceivePlayerId": {
       const playerId = message.playerId;
       const connectionId = message.connectionId;
@@ -88,6 +116,9 @@ ws.onmessage = (event) => {
 
       exportButton.classList.replace("text-red-500/50", "text-red-500");
       exportButton.classList.remove("cursor-not-allowed");
+
+      importButton.classList.replace("text-red-500", "text-red-500/50");
+      importButton.classList.add("cursor-not-allowed");
 
       break;
     }
@@ -188,6 +219,39 @@ exportButton.onclick = async () => {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+if (window.showOpenFilePicker) {
+  importButton.onclick = async () => {
+    /** @type {[FileSystemFileHandle]} */
+    const [fileHandle] = await window.showOpenFilePicker();
+    const file = await fileHandle.getFile();
+
+    console.log(file);
+
+    await fetch("/import", {
+      method: "POST",
+      body: file
+    });
+  }
+} else {
+  importButton.onclick = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+
+    input.onchange = async (event) => {
+      const [file] = event.target.files;
+
+      console.log(file);
+
+      await fetch("/import", {
+        method: "POST",
+        body: file
+      });
+    }
+
+    input.click();
+  }
 }
 
 drawField();

@@ -7,6 +7,7 @@ const connectedPlayers = new Array<boolean>(MAX_ROOM_SIZE).fill(false);
 
 let gameStarted = false;
 let roomSize = 0;
+let firstTurnPlayerId = -1;
 
 const TOTAL_ROWS = 32;
 const TOTAL_COLUMNS = 39;
@@ -54,7 +55,7 @@ const unions: number[][][] = [];
 
 const leaders: number[] = [];
 
-const polygons: number[][][] = [];
+const playersPolygons: PlayerPolygons[] = [];
 
 const occupiedDots = new Set<number>();
 
@@ -77,6 +78,8 @@ Deno.serve({ hostname: "0.0.0.0", port: 5000 }, async (req: Request) => {
   catch (_) {}
 
   if (path === "/export") return exportGame();
+
+  if (path === "/import") return await importGame(req);
   
   if (path !== "/ws") {
     return new Response("Not Found", { status: 404 });
@@ -119,13 +122,12 @@ Deno.serve({ hostname: "0.0.0.0", port: 5000 }, async (req: Request) => {
 // HANDLERS
 
 function exportGame() {
-  const exportPayload: ExportPayload = {
+  const exportPayload: ExportImportPayload = {
     board: board,
-    playerCount: roomSize,
+    currentTurnPlayerId: players.values().find(x => x.isTurn)!.id,
     unions: sparseArrayToDenseMap(unions, union => sparseArrayToDenseMap(union, x => x)),
     leaders: sparseArrayToDenseMap(leaders, x => x),
-    occupiedDots: occupiedDots.values().toArray(),
-    polygons: polygons,
+    playersPolygons: playersPolygons,
     excludedDots: excludedDots
   };
 
@@ -141,6 +143,61 @@ function exportGame() {
   })
 
   return new Response(new Blob([fileContent]), { headers });
+}
+
+async function importGame(request: Request) {
+  try {
+    const blob = await request.blob();
+
+    if (blob.size === 0) {
+      return new Response("Empty import file", { status: 401 });
+    }
+
+    if (blob.type !== "application/json") {
+      return new Response(`Incorrect MIME type, expected: application/json, actual: ${blob.type}`, { status: 401 });
+    }
+
+    console.log(blob);
+
+    const json = await blob.text();
+    const importPayload: ExportImportPayload = JSON.parse(json);
+
+    const errors = validateImport(importPayload);
+
+    if (errors.length !== 0) {
+      return new Response(errors.join(", "), { status: 401 });
+    }
+
+    board.push(...importPayload.board);
+    excludedDots.push(...importPayload.excludedDots);
+    playersPolygons.push(...importPayload.playersPolygons);
+
+    firstTurnPlayerId = importPayload.currentTurnPlayerId;
+
+    Object.entries(importPayload.leaders).forEach(([key, value]) => leaders[Number(key)] = value);
+    Object.entries(importPayload.unions).forEach(([leader, union]) => {
+      Object.entries(union).forEach(([key, value]) => {
+        unions[Number(leader)] ??= [];
+        unions[Number(leader)][Number(key)] = value;
+      });
+    });
+
+    for (const [_, player] of players) {
+      player.ws.send(JSON.stringify({
+        type: "HandleImport",
+        board: board,
+        excludedDots: excludedDots,
+        playersPolygons: importPayload.playersPolygons,
+        currentTurnPlayerId: importPayload.currentTurnPlayerId
+      }));
+    }
+
+    return new Response();
+  }
+  catch (error) {
+    console.error(error);
+    return new Response((error as Error).toString(), { status: 401 });
+  }
 }
 
 function connect(ws: WebSocket) {
@@ -183,6 +240,10 @@ function start(ws: WebSocket, message: StartMessage) {
 
   gameStarted = true;
 
+  if (firstTurnPlayerId === -1) {
+    firstTurnPlayerId = message.playerId;
+  }
+
   for (let r = 2; r <= TOTAL_ROWS; r++) {
     for (let c = 2; c <= TOTAL_COLUMNS; c++) {
       board.push(-1);
@@ -190,10 +251,14 @@ function start(ws: WebSocket, message: StartMessage) {
   }
 
   for (const [_, player] of players) {
-    if (player.id === message.playerId) {
+    playersPolygons[player.id] ??= {
+      polygons: [],
+      occupiedDots: []
+    };
+    if (player.id === firstTurnPlayerId) {
       player.isTurn = true;
     }
-    player.ws.send(JSON.stringify({ type: "HandleGameStart", playerId: message.playerId }));
+    player.ws.send(JSON.stringify({ type: "HandleGameStart", playerId: firstTurnPlayerId }));
   }
 };
 
@@ -229,8 +294,6 @@ function move(message: MoveMessage) {
   let trapPolygon: number[] = [];
   let trapPolygonOwnerId = -1;
 
-  polygons[message.playerId] ??= [];
-
   if (currentPolygons.length === 0) {
     for (const [_, { id }] of players) {
       if (id === message.playerId) continue;
@@ -240,7 +303,8 @@ function move(message: MoveMessage) {
         trapPolygonOwnerId = id;
         occupiedDots.add(message.dot);
         currentExcludedDots = getExcludedDots([trapPolygon]);
-        polygons[message.playerId].push(trapPolygon);
+        playersPolygons[trapPolygonOwnerId].polygons.push(trapPolygon);
+        playersPolygons[trapPolygonOwnerId].occupiedDots.push(message.dot);
         break;
       }
     }
@@ -248,7 +312,8 @@ function move(message: MoveMessage) {
   else {
     currentOccupiedDots.forEach(x => occupiedDots.add(x));
     currentExcludedDots = getExcludedDots(currentPolygons);
-    polygons[message.playerId].push(...currentPolygons);
+    playersPolygons[message.playerId].polygons.push(...currentPolygons);
+    playersPolygons[message.playerId].occupiedDots.push(...currentOccupiedDots);
   }
 
   excludedDots.push(...currentExcludedDots);
@@ -662,6 +727,36 @@ function sparseArrayToDenseMap<From, To>(
   );
 }
 
+function validateImport(importPayload: ExportImportPayload) {
+  const errors: string[] = [];
+
+  if (!importPayload) {
+    errors.push("payload is empty");
+    return errors;
+  }
+
+  if (importPayload.board === null || importPayload.board === undefined) {
+    errors.push("board is empty");
+  }
+  if (importPayload.currentTurnPlayerId === null || importPayload.currentTurnPlayerId === undefined) {
+    errors.push("playerCount is empty");
+  }
+  if (importPayload.excludedDots === null || importPayload.excludedDots === undefined) {
+    errors.push("excludedDots is empty");
+  }
+  if (importPayload.leaders === null || importPayload.leaders === undefined) {
+    errors.push("leaders is empty");
+  }
+  if (importPayload.playersPolygons === null || importPayload.playersPolygons === undefined) {
+    errors.push("playersPolygons is empty");
+  }
+  if (importPayload.unions === null || importPayload.unions === undefined) {
+    errors.push("unions is empty");
+  }
+
+  return errors;
+}
+
 // FUNCTIONS
 
 // TYPES
@@ -674,15 +769,19 @@ type Player = {
 
 type ExtremePoints = [number, number, number, number];
 
-type ExportPayload = {
+type ExportImportPayload = {
   board: number[],
-  playerCount: number,
+  currentTurnPlayerId: number,
   unions: Record<string, Record<string, number[]>>,
   leaders: Record<string, number>,
-  occupiedDots: number[],
-  polygons: number[][][],
+  playersPolygons: PlayerPolygons[],
   excludedDots: number[]
 };
+
+type PlayerPolygons = {
+  polygons: number[][],
+  occupiedDots: number[]
+}
 
 type Message = 
   | ConnectMessage
