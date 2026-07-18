@@ -3,7 +3,7 @@ import * as uuid from "jsr:@std/uuid@1.1.0";
 
 const MAX_ROOM_SIZE = 4;
 
-const connectedPlayers = new Array<boolean>(MAX_ROOM_SIZE).fill(false);
+const PING_INTERVAL_IN_MS = 30_000;
 
 let gameStarted = false;
 let roomSize = 0;
@@ -63,6 +63,65 @@ const excludedDots: number[] = [];
 
 const players = new Map<string, Player>();
 
+setInterval(() => {
+  const disconnectedPlayers: (ConnectionId & { playerId: number })[] = [];
+
+  for (const [connectionId, player] of players) {
+    if (!player.isConnected) {
+      console.log(`player ${player.id} disconnected`);
+      disconnectedPlayers.push({ connectionId: connectionId, playerId: player.id });
+    }
+  }
+
+  if (disconnectedPlayers.length !== 0) {
+    let currentTurnPlayerId = players.values().find(x => x.isTurn)?.id ?? -1;
+
+    // switch turn from disconnected player to next connected player
+    if (gameStarted) {
+      const iterablePlayeres = players.values().toArray();
+      let currentTurnPlayerIndex = iterablePlayeres.findIndex(x => x.isTurn);
+      let iterations = 0;
+
+      while (iterations < iterablePlayeres.length && !iterablePlayeres[currentTurnPlayerIndex].isConnected) {
+        currentTurnPlayerIndex = (currentTurnPlayerIndex + 1) % iterablePlayeres.length;
+        iterations++;
+      }
+
+      if (iterablePlayeres[currentTurnPlayerIndex].isConnected) {
+        currentTurnPlayerId = iterablePlayeres[currentTurnPlayerIndex].id;
+      }
+    }
+
+    for (const disconnectedPlayer of disconnectedPlayers) {
+      players.delete(disconnectedPlayer.connectionId);
+    }
+
+    for (const [_, player] of players) {
+      for (const disconnectedPlayer of disconnectedPlayers) {
+        if (!gameStarted && player.id > disconnectedPlayer.playerId) player.id--;
+
+        if (gameStarted && player.id === currentTurnPlayerId) {
+          player.isTurn = true;
+        }
+
+        player.ws.send(JSON.stringify({
+          type: "HandleDisconnectedPlayer",
+          disconnectedPlayerId: disconnectedPlayer.playerId,
+          gameStarted: gameStarted,
+          currentTurnPlayerId: currentTurnPlayerId
+        }));
+      }
+    }
+    
+    roomSize -= disconnectedPlayers.length;
+  }
+
+  for (const [_, player] of players) {
+    player.isConnected = false;
+    player.ws.send(JSON.stringify({ type: "ping" }));
+  }
+}, PING_INTERVAL_IN_MS);
+
 Deno.serve({ hostname: "0.0.0.0", port: 5000 }, async (req: Request) => {
   const path = new URL(req.url).pathname;
 
@@ -94,7 +153,13 @@ Deno.serve({ hostname: "0.0.0.0", port: 5000 }, async (req: Request) => {
   ws.onmessage = (event) => {
     const message: Message = JSON.parse(event.data);
 
-    console.log("MESSAGE:", message);
+    const { hour, minute, second } = Temporal.Now.plainTimeISO();
+    const now =
+      hour.toString().padStart(2, "0") + "-" +
+      minute.toString().padStart(2, "0") + "-" +
+      second.toString().padStart(2, "0");
+
+    console.log(now, "MESSAGE:", message);
 
     switch (message.type) {
       case "connect": {
@@ -109,8 +174,8 @@ Deno.serve({ hostname: "0.0.0.0", port: 5000 }, async (req: Request) => {
         move(message);
         break;
       }
-      case "disconnect": {
-        disconnect(message);
+      case "pong": {
+        pong(message);
         break;
       }
     }
@@ -131,8 +196,15 @@ function exportGame() {
     excludedDots: excludedDots
   };
 
-  const now = Temporal.Now.plainDateTimeISO();
-  const fileName = `dots-game-export-${now.toString().slice(0, 19).replaceAll(":", "-")}.json`;
+  const { year, month, day, hour, minute, second } = Temporal.Now.plainDateTimeISO();
+  const now =
+    year.toString() + "-" +
+    month.toString().padStart(2, "0") + "-" +
+    day.toString().padStart(2, "0") + "T" +
+    hour.toString().padStart(2, "0") + "-" +
+    minute.toString().padStart(2, "0") + "-" +
+    second.toString().padStart(2, "0");
+  const fileName = `dots-game-export-${now}.json`;
 
   const encoder = new TextEncoder();
   const fileContent = encoder.encode(JSON.stringify(exportPayload));
@@ -150,11 +222,11 @@ async function importGame(request: Request) {
     const blob = await request.blob();
 
     if (blob.size === 0) {
-      return new Response("Empty import file", { status: 401 });
+      return new Response("Empty import file", { status: 400 });
     }
 
     if (blob.type !== "application/json") {
-      return new Response(`Incorrect MIME type, expected: application/json, actual: ${blob.type}`, { status: 401 });
+      return new Response(`Incorrect MIME type, expected: application/json, actual: ${blob.type}`, { status: 400 });
     }
 
     console.log(blob);
@@ -165,7 +237,7 @@ async function importGame(request: Request) {
     const errors = validateImport(importPayload);
 
     if (errors.length !== 0) {
-      return new Response(errors.join(", "), { status: 401 });
+      return new Response(errors.join(", "), { status: 400 });
     }
 
     board.push(...importPayload.board);
@@ -196,7 +268,7 @@ async function importGame(request: Request) {
   }
   catch (error) {
     console.error(error);
-    return new Response((error as Error).toString(), { status: 401 });
+    return new Response((error as Error).toString(), { status: 400 });
   }
 }
 
@@ -215,8 +287,7 @@ function connect(ws: WebSocket) {
 
   const currentConnectionId = uuid.v7.generate();
 
-  players.set(currentConnectionId, { id: roomSize, ws, isTurn: false });
-  connectedPlayers[roomSize] = true;
+  players.set(currentConnectionId, { id: roomSize, ws, isTurn: false, isConnected: true });
 
   for (const [connectionId, player] of players) {
     if (connectionId === currentConnectionId) {
@@ -318,11 +389,20 @@ function move(message: MoveMessage) {
 
   excludedDots.push(...currentExcludedDots);
 
+  const iterablePlayeres = players.values().toArray();
+  let nextTurnPlayerIndex = (iterablePlayeres.findIndex(x => x.isTurn) + 1) % iterablePlayeres.length;
+  let iterations = 0;
+
+  while (iterations < iterablePlayeres.length && !iterablePlayeres[nextTurnPlayerIndex].isConnected) {
+    nextTurnPlayerIndex = (nextTurnPlayerIndex + 1) % iterablePlayeres.length;
+    iterations++;
+  }
+
   let nextTurnPlayerId = message.playerId;
 
-  do {
-    nextTurnPlayerId = (nextTurnPlayerId + 1) % roomSize;
-  } while (!connectedPlayers[nextTurnPlayerId]);
+  if (iterablePlayeres[nextTurnPlayerIndex].isConnected) {
+    nextTurnPlayerId = iterablePlayeres[nextTurnPlayerIndex].id;
+  }
 
   const response = {
     type: "HandleMove",
@@ -349,28 +429,13 @@ function move(message: MoveMessage) {
   }
 };
 
-function disconnect(message: DisconnectMessage) {
-  const removed = players.delete(message.connectionId);
+function pong(message: PongMessage) {
+  const player = players.get(message.connectionId);
 
-  if (!removed) return;
+  if (!player) return;
 
-  for (const [_, player] of players) {
-    if (!gameStarted && player.id > message.playerId) player.id--;
-
-    if (player.id !== message.playerId) {
-      player.ws.send(JSON.stringify({ type: "HandleDisconnectedPlayer", disconnectedPlayerId: message.playerId, gameStarted }));
-    }
-  }
-
-  roomSize--;
-
-  if (!gameStarted) {
-    connectedPlayers[roomSize] = false;
-  }
-  else {
-    connectedPlayers[message.playerId] = false;
-  }
-};
+  player.isConnected = true;
+}
 
 // HANDLERS
 
@@ -764,7 +829,8 @@ function validateImport(importPayload: ExportImportPayload) {
 type Player = {
   id: number,
   ws: WebSocket,
-  isTurn: boolean
+  isTurn: boolean,
+  isConnected: boolean
 };
 
 type ExtremePoints = [number, number, number, number];
@@ -787,7 +853,7 @@ type Message =
   | ConnectMessage
   | StartMessage
   | MoveMessage
-  | DisconnectMessage;
+  | PongMessage;
 
 type ConnectMessage = MessageType<"connect">;
 
@@ -800,13 +866,11 @@ type MoveMessage = ConnectionId & MessageType<"move"> & {
   dot: number
 };
 
-type DisconnectMessage = ConnectionId & MessageType<"disconnect"> & {
-  playerId: number
-};
+type PongMessage = ConnectionId & MessageType<"pong">;
 
 type ConnectionId = { connectionId: string };
 
-type MessageTypes = "connect" | "start" | "move" | "disconnect";
+type MessageTypes = "connect" | "start" | "move" | "pong";
 
 type MessageType<T extends MessageTypes> = { type: T };
 

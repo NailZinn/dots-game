@@ -17,6 +17,6 @@
 - [ ] [Refactoring] improve logging
 - [ ] [Optimization] handling own dots inside a polygon can introduce tens of thousands of additional iterations over polygon's dots when polygon has size of a classic field and a lot of own dots are inside it
 - [x] [Refactoring] move logic to backend
-- [ ] [Feature] export/import game
-- [ ] [Refactoring] improve disconnection by adding server-side ping
+- [x] [Feature] export/import game
+- [x] [Refactoring] improve disconnection by adding server-side ping
 - [ ] [Feature] voice chat

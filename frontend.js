@@ -46,12 +46,13 @@ ws.onmessage = (event) => {
   /**
    * @type {(
    *  | { type: "error", text: string }
+   *  | { type: "ping" }
    *  | { type: "HandleImport", board: number[], excludedDots: number[], playersPolygons: { polygons: number[][], occupiedDots: number[] }[], currentTurnPlayerId: number }
    *  | { type: "ReceivePlayerId", connectionId: string, playerId: number }
    *  | { type: "ReceiveNewPlayerId", newPlayerId: number }
    *  | { type: "HandleGameStart", playerId: number }
    *  | { type: "HandleMove", playerId: number, dot: number, polygons: number[][], currentOccupiedDots: number[], dotsExcludedFromGame: number[], trapPolygon: number[], trapPolygonOwnerId: number, nextTurnPlayerId: number }
-   *  | { type: "HandleDisconnectedPlayer", disconnectedPlayerId: number, gameStarted: boolean }
+   *  | { type: "HandleDisconnectedPlayer", disconnectedPlayerId: number, gameStarted: boolean, currentTurnPlayerId: number }
    * )}
    */
   const message = JSON.parse(event.data);
@@ -162,14 +163,28 @@ ws.onmessage = (event) => {
 
       break;
     }
+    case "ping": {
+      ws.send(JSON.stringify({ type: "pong", connectionId: state.connectionId }));
+      break;
+    }
     case "HandleDisconnectedPlayer": {
-      const { disconnectedPlayerId, gameStarted } = message;
-
-      console.log("HandleDisconnectedPlayer", disconnectedPlayerId, gameStarted);
+      const { disconnectedPlayerId, gameStarted, currentTurnPlayerId } = message;
 
       if (gameStarted) {
         document.getElementById(`name-${disconnectedPlayerId}`).innerText += " (disconnected)";
-        return;
+
+        const disconnectedPlayerTurn = document.getElementById(`turn-${disconnectedPlayerId}`);
+        if (!disconnectedPlayerTurn.classList.contains("hidden")) {
+          disconnectedPlayerTurn.classList.add("hidden");
+        }
+        const currentTurnPlayerTurn = document.getElementById(`turn-${currentTurnPlayerId}`);
+        if (currentTurnPlayerTurn.classList.contains("hidden")) {
+          currentTurnPlayerTurn.classList.remove("hidden");
+        }
+
+        state.isTurn = state.playerId === currentTurnPlayerId;
+
+        break;
       }
 
       const disconnectedPlayer = document.getElementById(`player-${disconnectedPlayerId.toString()}`);
